@@ -9,7 +9,7 @@
 ;; Version: 0.0.1
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
-;; Package-Requires: ((emacs "27.1"))
+;; Package-Requires: ((emacs "27.1") (request "0.3.0"))
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;
@@ -22,6 +22,10 @@
 ;;; Commentary:
 ;;
 ;;; Code:
+
+(require 'request)
+(require 'shr)
+(require 'let-alist)
 
 (defgroup wiktionary-bro nil
   "Lookup Wiktionary entries"
@@ -52,20 +56,54 @@ Otherwise, user must provide additional information."
       (buffer-substring-no-properties beginning end)
     (read-string "Wiktionary look up: ")))
 
+(defun wiktionary-bro--render (html-text)
+  "Renders HTML-TEXT of a wiktioary entry"
+  (with-temp-buffer
+    (insert html-text)
+    (cl-letf* ((shr-tag-span* (symbol-function 'shr-tag-span))
+               ((symbol-function 'shr-tag-span)
+                (lambda (dom)
+                  (let ((href (alist-get
+                               'href (car (alist-get 'a (cdr dom))))))
+                    (unless (and href
+                                 (string-match-p "action=edit" href))
+                      (funcall shr-tag-span* dom)))))
+
+               (shr-tag-div* (symbol-function 'shr-tag-div))
+               ((symbol-function 'shr-tag-div)
+                (lambda (dom)
+                  (let ((id (alist-get 'id (cadr dom))))
+                    (unless (and id (string= id "toc") )
+                      (funcall shr-tag-div* dom))))))
+      (shr-render-buffer
+       (current-buffer)))))
+
 (defun wiktionary-bro (&optional beginning end)
-  ""
+  "Look up a Wiktionary entry
+`BEGINNING' and `END' correspond to the selected text with a word
+to look up. If there is no selection provided, additional input
+will be required."
   (interactive
    ;; it is a simple interactive function instead of interactive "r"
    ;; because it doesn't produce an error in a buffer without a mark
    (if (use-region-p) (list (region-beginning) (region-end))
      (list nil nil)))
   (let* ((word (wiktionary-bro--get-original-word beginning end))
-         (url (format "https://en.wiktionary.org/wiki/%s#Spanish"
-                      word)))
-    (eww-browse-url url)))
+         (url (format
+               "https://en.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
+               word)))
+    (request url
+      :parser #'json-read
+      :success
+      (cl-function
+       (lambda (&key data &allow-other-keys)
+         (let-alist data
+           (if .error
+               (message .error.info)
+             (wiktionary-bro--render .parse.text.*))))))))
 
 (defun wiktionary-bro--at-point (word-point)
-  "Look up a wiktionary entry for word at point."
+  "Look up a Wiktionary entry for word at point."
   (interactive (list (point)))
   (save-mark-and-excursion
     (unless (wiktionary-bro--at-the-beginning-of-word-p word-point)
@@ -76,7 +114,9 @@ Otherwise, user must provide additional information."
     (wiktionary-bro (region-beginning) (region-end))))
 
 (defun wiktionary-bro-dwim ()
-  ""
+  "Look up a Wiktionary entry.
+Dispatches proper fn depending of region selection or
+thing-at-point, or prompts for a word."
   (interactive)
   (let (beg end)
     (if (use-region-p)
