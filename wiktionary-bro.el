@@ -17,7 +17,7 @@
 ;;
 ;;; Description
 ;;
-;; Browse Wiktionary entries a bit more conveniently
+;; Lookup Wiktionary entries a bit more conveniently
 ;;
 ;;; Commentary:
 ;;
@@ -102,7 +102,7 @@ will be required."
                (message .error.info)
              (wiktionary-bro--render .parse.text.*))))))))
 
-(defun wiktionary-bro--at-point (word-point)
+(defun wiktionary-bro-at-point (word-point)
   "Look up a Wiktionary entry for word at point."
   (interactive (list (point)))
   (save-mark-and-excursion
@@ -125,7 +125,7 @@ thing-at-point, or prompts for a word."
                 end (region-end))
           (wiktionary-bro beg end))
       (if (thing-at-point 'word)
-          (wiktionary-bro--at-point (point))
+          (wiktionary-bro-at-point (point))
         (wiktionary-bro)))))
 
 (provide 'wiktionary-bro)

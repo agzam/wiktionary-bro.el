@@ -1,0 +1,24 @@
+#+TITLE: Lookup Wiktionary entries a bit more conveniently.
+
+** Usage
+- Install using your favorite package manager.
+  /It's not published yet, you'd have to grab it directly from the repo./
+- Use it: ~M-x wiktionary-bro-dwim~
+
+** Example configuration
+*** Doom Emacs
+=packages.el=:
+#+begin_src emacs-lisp
+(package! wiktionary-bro
+  :recipe (:host github :repo "agzam/wiktionary-bro.el"))
+#+end_src
+
+=config.el=:
+#+begin_src emacs-lisp
+(use-package! wiktionary-bro
+  :commands (wiktionary-bro-dwim)
+  :config
+  (map! :leader
+    :desc "Wiktionary"
+    "xlw" #'wiktionary-bro-dwim))
+#+end_src
