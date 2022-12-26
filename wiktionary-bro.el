@@ -142,6 +142,7 @@ Otherwise, user must provide additional information."
        (current-buffer))
       (wiktionary-bro-mode)
       (org-indent-mode)
+      (read-only-mode)
       (rename-buffer title :uniq))))
 
 (defun wiktionary-bro (&optional beginning end)
