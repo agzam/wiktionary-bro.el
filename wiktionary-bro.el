@@ -9,7 +9,7 @@
 ;; Version: 0.0.1
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
-;; Package-Requires: ((emacs "27.1") (request "0.3.0"))
+;; Package-Requires: ((emacs "28.1") (request "0.3.0") (org "9"))
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;
@@ -26,11 +26,23 @@
 (require 'request)
 (require 'shr)
 (require 'let-alist)
+(require 'outline)
+(require 'org-indent)
 
 (defgroup wiktionary-bro nil
   "Lookup Wiktionary entries"
   :prefix "wiktionary-bro-"
   :group 'applications)
+
+(defvar wiktionary-bro-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "TAB") #'outline-cycle)
+    map)
+  "Keymap for `wiktionary-bro-mode'.")
+
+(define-derived-mode wiktionary-bro-mode
+  text-mode "Wiktionary"
+  "Major mode for browsing Wiktionary entries")
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether `WORD-POINT' points to the beginning of the word."
@@ -56,8 +68,8 @@ Otherwise, user must provide additional information."
       (buffer-substring-no-properties beginning end)
     (read-string "Wiktionary look up: ")))
 
-(defun wiktionary-bro--render (html-text)
-  "Renders HTML-TEXT of a wiktioary entry"
+(defun wiktionary-bro--render (title html-text)
+  "Render HTML-TEXT of a Wiktionary entry with TITLE."
   (with-temp-buffer
     (insert html-text)
     (cl-letf* ((shr-tag-span* (symbol-function 'shr-tag-span))
@@ -127,7 +139,10 @@ Otherwise, user must provide additional information."
                   (shr-fontize-dom dom 'shr-h6)
                   (insert "\n"))))
       (shr-render-buffer
-       (current-buffer)))))
+       (current-buffer))
+      (wiktionary-bro-mode)
+      (org-indent-mode)
+      (rename-buffer title :uniq))))
 
 (defun wiktionary-bro (&optional beginning end)
   "Look up a Wiktionary entry
@@ -151,7 +166,9 @@ will be required."
          (let-alist data
            (if .error
                (message .error.info)
-             (wiktionary-bro--render .parse.text.*))))))))
+             (wiktionary-bro--render
+              .parse.title
+              .parse.text.*))))))))
 
 (defun wiktionary-bro-at-point (word-point)
   "Look up a Wiktionary entry for word at point."
