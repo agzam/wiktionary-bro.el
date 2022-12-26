@@ -65,16 +65,67 @@ Otherwise, user must provide additional information."
                 (lambda (dom)
                   (let ((href (alist-get
                                'href (car (alist-get 'a (cdr dom))))))
-                    (unless (and href
-                                 (string-match-p "action=edit" href))
+                    ;; remove [edit] buttons
+                    (unless (and href (string-match-p "action=edit" href))
                       (funcall shr-tag-span* dom)))))
 
                (shr-tag-div* (symbol-function 'shr-tag-div))
                ((symbol-function 'shr-tag-div)
                 (lambda (dom)
+                  ;; remove TOC
                   (let ((id (alist-get 'id (cadr dom))))
                     (unless (and id (string= id "toc") )
-                      (funcall shr-tag-div* dom))))))
+                      (funcall shr-tag-div* dom)))))
+
+               ;; list items should be prefixed with dash (not asterisk)
+               (shr-tag-li* (symbol-function 'shr-tag-li))
+               ((symbol-function 'shr-tag-li)
+                (lambda (dom)
+                  (let ((shr-internal-bullet '("- " . 2)))
+                    (funcall shr-tag-li* dom))))
+
+               (shr-tag-a* (symbol-function 'shr-tag-a))
+               ((symbol-function 'shr-tag-a)
+                (lambda (dom)
+                  ;; fix internal links
+                  ;; otherwise they won't be navigable
+                  (let ((href (alist-get 'href (cadr dom))))
+                    (unless (string-match-p "https://" href)
+                      (setf
+                       (alist-get 'href (cadr dom))
+                       (concat "https://wiktionary.org" href)))
+                    (funcall shr-tag-a* dom))))
+
+               ((symbol-function 'shr-tag-h1)
+                (lambda (dom)
+                  (insert (propertize "* " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h1)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h2)
+                (lambda (dom)
+                  (insert (propertize "* " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h2)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h3)
+                (lambda (dom)
+                  (insert (propertize "** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h3)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h4)
+                (lambda (dom)
+                  (insert (propertize "*** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h4)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h5)
+                (lambda (dom)
+                  (insert (propertize "**** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h5)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h6)
+                (lambda (dom)
+                  (insert (propertize "***** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h6)
+                  (insert "\n"))))
       (shr-render-buffer
        (current-buffer)))))
 
