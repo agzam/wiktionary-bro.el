@@ -9,7 +9,7 @@
 ;; Version: 0.0.1
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
-;; Package-Requires: ((emacs "27.1") (request "0.3.0"))
+;; Package-Requires: ((emacs "28.1") (request "0.3.0") (org "9"))
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;
@@ -26,11 +26,23 @@
 (require 'request)
 (require 'shr)
 (require 'let-alist)
+(require 'outline)
+(require 'org-indent)
 
 (defgroup wiktionary-bro nil
   "Lookup Wiktionary entries"
   :prefix "wiktionary-bro-"
   :group 'applications)
+
+(defvar wiktionary-bro-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "TAB") #'outline-cycle)
+    map)
+  "Keymap for `wiktionary-bro-mode'.")
+
+(define-derived-mode wiktionary-bro-mode
+  text-mode "Wiktionary"
+  "Major mode for browsing Wiktionary entries")
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether `WORD-POINT' points to the beginning of the word."
@@ -56,8 +68,8 @@ Otherwise, user must provide additional information."
       (buffer-substring-no-properties beginning end)
     (read-string "Wiktionary look up: ")))
 
-(defun wiktionary-bro--render (html-text)
-  "Renders HTML-TEXT of a wiktioary entry"
+(defun wiktionary-bro--render (title html-text)
+  "Render HTML-TEXT of a Wiktionary entry with TITLE."
   (with-temp-buffer
     (insert html-text)
     (cl-letf* ((shr-tag-span* (symbol-function 'shr-tag-span))
@@ -65,18 +77,72 @@ Otherwise, user must provide additional information."
                 (lambda (dom)
                   (let ((href (alist-get
                                'href (car (alist-get 'a (cdr dom))))))
-                    (unless (and href
-                                 (string-match-p "action=edit" href))
+                    ;; remove [edit] buttons
+                    (unless (and href (string-match-p "action=edit" href))
                       (funcall shr-tag-span* dom)))))
 
                (shr-tag-div* (symbol-function 'shr-tag-div))
                ((symbol-function 'shr-tag-div)
                 (lambda (dom)
+                  ;; remove TOC
                   (let ((id (alist-get 'id (cadr dom))))
                     (unless (and id (string= id "toc") )
-                      (funcall shr-tag-div* dom))))))
+                      (funcall shr-tag-div* dom)))))
+
+               ;; list items should be prefixed with dash (not asterisk)
+               (shr-tag-li* (symbol-function 'shr-tag-li))
+               ((symbol-function 'shr-tag-li)
+                (lambda (dom)
+                  (let ((shr-internal-bullet '("- " . 2)))
+                    (funcall shr-tag-li* dom))))
+
+               (shr-tag-a* (symbol-function 'shr-tag-a))
+               ((symbol-function 'shr-tag-a)
+                (lambda (dom)
+                  ;; fix internal links
+                  ;; otherwise they won't be navigable
+                  (let ((href (alist-get 'href (cadr dom))))
+                    (unless (string-match-p "https://" href)
+                      (setf
+                       (alist-get 'href (cadr dom))
+                       (concat "https://wiktionary.org" href)))
+                    (funcall shr-tag-a* dom))))
+
+               ((symbol-function 'shr-tag-h1)
+                (lambda (dom)
+                  (insert (propertize "* " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h1)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h2)
+                (lambda (dom)
+                  (insert (propertize "* " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h2)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h3)
+                (lambda (dom)
+                  (insert (propertize "** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h3)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h4)
+                (lambda (dom)
+                  (insert (propertize "*** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h4)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h5)
+                (lambda (dom)
+                  (insert (propertize "**** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h5)
+                  (insert "\n")))
+               ((symbol-function 'shr-tag-h6)
+                (lambda (dom)
+                  (insert (propertize "***** " 'invisible t))
+                  (shr-fontize-dom dom 'shr-h6)
+                  (insert "\n"))))
       (shr-render-buffer
-       (current-buffer)))))
+       (current-buffer))
+      (wiktionary-bro-mode)
+      (org-indent-mode)
+      (rename-buffer title :uniq))))
 
 (defun wiktionary-bro (&optional beginning end)
   "Look up a Wiktionary entry
@@ -100,7 +166,9 @@ will be required."
          (let-alist data
            (if .error
                (message .error.info)
-             (wiktionary-bro--render .parse.text.*))))))))
+             (wiktionary-bro--render
+              .parse.title
+              .parse.text.*))))))))
 
 (defun wiktionary-bro-at-point (word-point)
   "Look up a Wiktionary entry for word at point."

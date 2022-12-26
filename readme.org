@@ -4,6 +4,7 @@
 - Install using your favorite package manager.
   /It's not published yet, you'd have to grab it directly from the repo./
 - Use it: ~M-x wiktionary-bro-dwim~
+  - =<TAB>= to collapse/expand sections
 
 ** Example configuration
 *** Doom Emacs
