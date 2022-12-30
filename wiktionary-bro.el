@@ -28,6 +28,7 @@
 (require 'let-alist)
 (require 'outline)
 (require 'org-indent)
+(require 'image-file)
 
 (defgroup wiktionary-bro nil
   "Lookup Wiktionary entries"
@@ -85,8 +86,10 @@ Otherwise, user must provide additional information."
                ((symbol-function 'shr-tag-div)
                 (lambda (dom)
                   ;; remove TOC
-                  (let ((id (alist-get 'id (cadr dom))))
-                    (unless (and id (string= id "toc") )
+                  (let ((id (alist-get 'id (cadr dom)))
+                        (class (alist-get 'class (cadr dom))))
+                    (unless (or (and id (string= id "toc"))
+                                (and class (string= class "thumbinner")))
                       (funcall shr-tag-div* dom)))))
 
                ;; list items should be prefixed with dash (not asterisk)
@@ -106,7 +109,8 @@ Otherwise, user must provide additional information."
                       (setf
                        (alist-get 'href (cadr dom))
                        (concat "https://wiktionary.org" href)))
-                    (funcall shr-tag-a* dom))))
+                    (unless (and href (string-match-p (image-file-name-regexp) href))
+                      (funcall shr-tag-a* dom)))))
 
                ((symbol-function 'shr-tag-h1)
                 (lambda (dom)
