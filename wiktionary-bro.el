@@ -41,7 +41,7 @@
   "Keymap for `wiktionary-bro-mode'.")
 
 (define-derived-mode wiktionary-bro-mode
-  text-mode "Wiktionary"
+  org-mode "Wiktionary"
   "Major mode for browsing Wiktionary entries")
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
@@ -72,14 +72,26 @@ Otherwise, user must provide additional information."
   "Render HTML-TEXT of a Wiktionary entry with TITLE."
   (with-temp-buffer
     (insert html-text)
-    (cl-letf* ((shr-tag-span* (symbol-function 'shr-tag-span))
+    (cl-letf* (((symbol-function 'shr-tag-img)
+                ;; remove images
+                (lambda (_) nil))
+
+               (shr-tag-span* (symbol-function 'shr-tag-span))
                ((symbol-function 'shr-tag-span)
                 (lambda (dom)
                   (let ((href (alist-get
                                'href (car (alist-get 'a (cdr dom))))))
-                    ;; remove [edit] buttons
                     (unless (and href (string-match-p "action=edit" href))
                       (funcall shr-tag-span* dom)))))
+
+               ((symbol-function 'shr-tag-a)
+                (lambda (dom)
+                  (let-alist (cadr dom)
+                    (let ((desc (if (stringp (caddr dom))
+                                    (string-trim (caddr dom))
+                                  (caddr (caddr dom))))
+                          (href .href))
+                      (insert (format "[[%s][%s]]" href desc))))))
 
                (shr-tag-div* (symbol-function 'shr-tag-div))
                ((symbol-function 'shr-tag-div)
@@ -93,8 +105,28 @@ Otherwise, user must provide additional information."
                (shr-tag-li* (symbol-function 'shr-tag-li))
                ((symbol-function 'shr-tag-li)
                 (lambda (dom)
-                  (let ((shr-internal-bullet '("- " . 2)))
-                    (funcall shr-tag-li* dom))))
+                  (cl-letf (((symbol-function 'shr-mark-fill)
+                             (lambda (_) nil)))
+                    (let ((shr-internal-bullet '("- " . 2)))
+                      (funcall shr-tag-li* dom)))))
+
+               (shr-tag-table* (symbol-function 'shr-tag-table))
+               ((symbol-function 'shr-tag-table)
+                (lambda (dom)
+                  (debug)
+                  nil
+                  ;; (cl-letf (((symbol-function 'shr-tag-ul)
+                  ;;            (lambda (d)
+                  ;;              (insert "\n")
+                  ;;              (shr-generic d)))
+                  ;;           ((symbol-function 'shr-tag-li)
+                  ;;            (lambda (d)
+                  ;;              (insert "\n| ")
+                  ;;              (shr-generic d)
+                  ;;              (insert " |"))))
+                  ;;   ;; (funcall shr-tag-table* dom)
+                  ;;   )
+                  ))
 
                (shr-tag-a* (symbol-function 'shr-tag-a))
                ((symbol-function 'shr-tag-a)
@@ -137,11 +169,18 @@ Otherwise, user must provide additional information."
                 (lambda (dom)
                   (insert (propertize "***** " 'invisible t))
                   (shr-fontize-dom dom 'shr-h6)
-                  (insert "\n"))))
+                  (insert "\n")))
+
+               ((symbol-function 'shr-tag-p)
+                (lambda (dom)
+                  (cl-letf (((symbol-function 'shr-mark-fill)
+                             (lambda (_) nil)))
+                    (shr-generic dom)
+                    (insert "\n")))))
       (shr-render-buffer
        (current-buffer))
       (wiktionary-bro-mode)
-      (org-indent-mode)
+      ;; (org-indent-mode)
       (read-only-mode)
       (rename-buffer title :uniq))))
 
@@ -164,6 +203,10 @@ will be required."
       :success
       (cl-function
        (lambda (&key data &allow-other-keys)
+         ;; (let ((b (generate-new-buffer "wiktionary")))
+         ;;   (with-current-buffer b
+         ;;     (insert (pp data))
+         ;;     (switch-to-buffer b)))
          (let-alist data
            (if .error
                (message .error.info)
