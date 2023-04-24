@@ -9,18 +9,16 @@
 ;; Version: 0.0.1
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
-;; Package-Requires: ((emacs "28.1") (request "0.3.0") (org "9"))
+;; Package-Requires: ((emacs "28.1") (request "0.3.0"))
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
-;;; Description
-;;
-;; Lookup Wiktionary entries a bit more conveniently
-;;
 ;;; Commentary:
 ;;
+;; Lookup Wiktionary entries a bit more conveniently
+
 ;;; Code:
 
 (require 'request)
@@ -30,7 +28,7 @@
 (require 'org-indent)
 
 (defgroup wiktionary-bro nil
-  "Lookup Wiktionary entries"
+  "Lookup Wiktionary entries."
   :prefix "wiktionary-bro-"
   :group 'applications)
 
@@ -41,8 +39,8 @@
   "Keymap for `wiktionary-bro-mode'.")
 
 (define-derived-mode wiktionary-bro-mode
-  text-mode "Wiktionary"
-  "Major mode for browsing Wiktionary entries")
+  special-mode "Wiktionary"
+  "Major mode for browsing Wiktionary entries.")
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether `WORD-POINT' points to the beginning of the word."
@@ -146,8 +144,8 @@ Otherwise, user must provide additional information."
       (rename-buffer title :uniq))))
 
 (defun wiktionary-bro (&optional beginning end)
-  "Look up a Wiktionary entry
-`BEGINNING' and `END' correspond to the selected text with a word
+  "Look up a Wiktionary entry.
+BEGINNING and END correspond to the selected text with a word
 to look up. If there is no selection provided, additional input
 will be required."
   (interactive
@@ -172,7 +170,7 @@ will be required."
               .parse.text.*))))))))
 
 (defun wiktionary-bro-at-point (word-point)
-  "Look up a Wiktionary entry for word at point."
+  "Look up a Wiktionary entry for WORD-POINT."
   (interactive (list (point)))
   (save-mark-and-excursion
     (unless (wiktionary-bro--at-the-beginning-of-word-p word-point)
@@ -185,7 +183,7 @@ will be required."
 (defun wiktionary-bro-dwim ()
   "Look up a Wiktionary entry.
 Dispatches proper fn depending of region selection or
-thing-at-point, or prompts for a word."
+`thing-at-point', or prompts for a word."
   (interactive)
   (let (beg end)
     (if (use-region-p)
