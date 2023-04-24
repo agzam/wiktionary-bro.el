@@ -41,8 +41,8 @@
   "Keymap for `wiktionary-bro-mode'.")
 
 (define-derived-mode wiktionary-bro-mode
-  text-mode "Wiktionary"
-  "Major mode for browsing Wiktionary entries")
+  special-mode "Wiktionary"
+  "Major mode for browsing Wiktionary entries.")
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether `WORD-POINT' points to the beginning of the word."
