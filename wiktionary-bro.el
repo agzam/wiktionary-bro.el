@@ -143,8 +143,9 @@ Otherwise, user must provide additional information."
       (read-only-mode)
       (rename-buffer title :uniq))))
 
-(defun wiktionary-bro (&optional beginning end)
+(defun wiktionary-bro (&optional term beginning end)
   "Look up a Wiktionary entry.
+TERM is the word to search for.
 BEGINNING and END correspond to the selected text with a word
 to look up. If there is no selection provided, additional input
 will be required."
@@ -153,7 +154,7 @@ will be required."
    ;; because it doesn't produce an error in a buffer without a mark
    (if (use-region-p) (list (region-beginning) (region-end))
      (list nil nil)))
-  (let* ((word (wiktionary-bro--get-original-word beginning end))
+  (let* ((word (or term (wiktionary-bro--get-original-word beginning end)))
          (url (format
                "https://en.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
                word)))
