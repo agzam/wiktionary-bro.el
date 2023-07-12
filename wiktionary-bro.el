@@ -30,19 +30,20 @@
 (require 'org-indent)
 
 (defgroup wiktionary-bro nil
-  "Lookup Wiktionary entries"
+  "Lookup Wiktionary entries."
   :prefix "wiktionary-bro-"
   :group 'applications)
 
 (defvar wiktionary-bro-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "TAB") #'outline-cycle)
+    (define-key map (kbd "RET") #'wiktionary-bro-dwim)
     map)
   "Keymap for `wiktionary-bro-mode'.")
 
 (define-derived-mode wiktionary-bro-mode
   org-mode "Wiktionary"
-  "Major mode for browsing Wiktionary entries")
+  "Major mode for browsing Wiktionary entries.")
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether `WORD-POINT' points to the beginning of the word."
@@ -68,124 +69,138 @@ Otherwise, user must provide additional information."
       (buffer-substring-no-properties beginning end)
     (read-string "Wiktionary look up: ")))
 
-(defun wiktionary-bro--render (title html-text)
-  "Render HTML-TEXT of a Wiktionary entry with TITLE."
-  (with-temp-buffer
-    (insert html-text)
-    (cl-letf* (((symbol-function 'shr-tag-img)
-                ;; remove images
-                (lambda (_) nil))
+(defun wiktionary-bro--shr-insert-doc (dom)
+  "Overrides shr-insert-doc for cleaner content."
+  (cl-letf*
+      (((symbol-function 'shr-tag-img)
+        ;; remove images
+        #'ignore)
 
-               (shr-tag-span* (symbol-function 'shr-tag-span))
-               ((symbol-function 'shr-tag-span)
-                (lambda (dom)
-                  (let ((href (alist-get
-                               'href (car (alist-get 'a (cdr dom))))))
-                    (unless (and href (string-match-p "action=edit" href))
-                      (funcall shr-tag-span* dom)))))
+       ;; remove edit buttons
+       (shr-tag-span* (symbol-function 'shr-tag-span))
+       ((symbol-function 'shr-tag-span)
+        (lambda (dom)
+          (let ((href (alist-get
+                       'href (car (alist-get 'a (cdr dom))))))
+            (unless (and href (string-match-p "action=edit" href))
+              (funcall shr-tag-span* dom)))))
 
-               ((symbol-function 'shr-tag-a)
-                (lambda (dom)
-                  (let-alist (cadr dom)
-                    (let ((desc (if (stringp (caddr dom))
-                                    (string-trim (caddr dom))
-                                  (caddr (caddr dom))))
-                          (href .href))
-                      (insert (format "[[%s][%s]]" href desc))))))
+       ;; transform urls to org-mode format
+       ((symbol-function 'shr-tag-a)
+        (lambda (dom)
+          (let-alist (cadr dom)
+            (when-let ((desc (if (stringp (caddr dom))
+                                 (string-trim (caddr dom))
+                               (caddr (caddr dom))))
+                       (href .href))
+              (insert (format "[[%s][%s]]" href desc))))))
 
-               (shr-tag-div* (symbol-function 'shr-tag-div))
-               ((symbol-function 'shr-tag-div)
-                (lambda (dom)
-                  ;; remove TOC
-                  (let ((id (alist-get 'id (cadr dom))))
-                    (unless (and id (string= id "toc") )
-                      (funcall shr-tag-div* dom)))))
+       (shr-tag-div* (symbol-function 'shr-tag-div))
+       ((symbol-function 'shr-tag-div)
+        (lambda (dom)
+          ;; remove TOC
+          (let ((id (alist-get 'id (cadr dom))))
+            (unless (and id (string= id "toc") )
+              (funcall shr-tag-div* dom)))))
 
-               ;; list items should be prefixed with dash (not asterisk)
-               (shr-tag-li* (symbol-function 'shr-tag-li))
-               ((symbol-function 'shr-tag-li)
-                (lambda (dom)
-                  (cl-letf (((symbol-function 'shr-mark-fill)
-                             (lambda (_) nil)))
-                    (let ((shr-internal-bullet '("- " . 2)))
-                      (funcall shr-tag-li* dom)))))
+       ;; list items should be prefixed with dash (not asterisk)
+       (shr-tag-li* (symbol-function 'shr-tag-li))
+       ((symbol-function 'shr-tag-li)
+        (lambda (dom)
+          (cl-letf (((symbol-function 'shr-mark-fill)
+                     #'ignore))
+            (let ((shr-internal-bullet '("- " . 2)))
+              (funcall shr-tag-li* dom)))))
 
-               (shr-tag-table* (symbol-function 'shr-tag-table))
-               ((symbol-function 'shr-tag-table)
-                (lambda (dom)
-                  (debug)
-                  nil
-                  ;; (cl-letf (((symbol-function 'shr-tag-ul)
-                  ;;            (lambda (d)
-                  ;;              (insert "\n")
-                  ;;              (shr-generic d)))
-                  ;;           ((symbol-function 'shr-tag-li)
-                  ;;            (lambda (d)
-                  ;;              (insert "\n| ")
-                  ;;              (shr-generic d)
-                  ;;              (insert " |"))))
-                  ;;   ;; (funcall shr-tag-table* dom)
-                  ;;   )
-                  ))
+       (shr-tag-table* (symbol-function 'shr-tag-table))
+       ((symbol-function 'shr-tag-table)
+        (lambda (dom)
+          ""
+          ;; (cl-letf (((symbol-function 'shr-tag-ul)
+          ;;            (lambda (d)
+          ;;              (insert "\n")
+          ;;              (shr-generic d)))
+          ;;           ((symbol-function 'shr-tag-li)
+          ;;            (lambda (d)
+          ;;              (insert "\n| ")
+          ;;              (shr-generic d)
+          ;;              (insert " |"))))
+          ;;   ;; (funcall shr-tag-table* dom)
+          ;;   )
+          ))
 
-               (shr-tag-a* (symbol-function 'shr-tag-a))
-               ((symbol-function 'shr-tag-a)
-                (lambda (dom)
-                  ;; fix internal links
-                  ;; otherwise they won't be navigable
-                  (let ((href (alist-get 'href (cadr dom))))
-                    (unless (string-match-p "https://" href)
-                      (setf
-                       (alist-get 'href (cadr dom))
-                       (concat "https://wiktionary.org" href)))
-                    (funcall shr-tag-a* dom))))
+       (shr-tag-a* (symbol-function 'shr-tag-a))
+       ((symbol-function 'shr-tag-a)
+        (lambda (dom)
+          ;; fix internal links
+          ;; otherwise they won't be navigable
+          (let ((href (alist-get 'href (cadr dom))))
+            (unless (string-match-p "https://" href)
+              (setf
+               (alist-get 'href (cadr dom))
+               (concat "https://wiktionary.org" href)))
+            (funcall shr-tag-a* dom))))
 
-               ((symbol-function 'shr-tag-h1)
-                (lambda (dom)
-                  (insert (propertize "* " 'invisible t))
-                  (shr-fontize-dom dom 'shr-h1)
-                  (insert "\n")))
-               ((symbol-function 'shr-tag-h2)
-                (lambda (dom)
-                  (insert (propertize "* " 'invisible t))
-                  (shr-fontize-dom dom 'shr-h2)
-                  (insert "\n")))
-               ((symbol-function 'shr-tag-h3)
-                (lambda (dom)
-                  (insert (propertize "** " 'invisible t))
-                  (shr-fontize-dom dom 'shr-h3)
-                  (insert "\n")))
-               ((symbol-function 'shr-tag-h4)
-                (lambda (dom)
-                  (insert (propertize "*** " 'invisible t))
-                  (shr-fontize-dom dom 'shr-h4)
-                  (insert "\n")))
-               ((symbol-function 'shr-tag-h5)
-                (lambda (dom)
-                  (insert (propertize "**** " 'invisible t))
-                  (shr-fontize-dom dom 'shr-h5)
-                  (insert "\n")))
-               ((symbol-function 'shr-tag-h6)
-                (lambda (dom)
-                  (insert (propertize "***** " 'invisible t))
-                  (shr-fontize-dom dom 'shr-h6)
-                  (insert "\n")))
+       ((symbol-function 'shr-tag-h1)
+        (lambda (dom)
+          (insert (propertize "* " 'invisible t))
+          (shr-fontize-dom dom 'shr-h1)
+          (insert "\n")))
+       ((symbol-function 'shr-tag-h2)
+        (lambda (dom)
+          (insert (propertize "* " 'invisible t))
+          (shr-fontize-dom dom 'shr-h2)
+          (insert "\n")))
+       ((symbol-function 'shr-tag-h3)
+        (lambda (dom)
+          (insert (propertize "** " 'invisible t))
+          (shr-fontize-dom dom 'shr-h3)
+          (insert "\n")))
+       ((symbol-function 'shr-tag-h4) (lambda (dom)
+                                        (insert (propertize "*** " 'invisible t))
+                                        (shr-fontize-dom dom 'shr-h4)
+                                        (insert "\n")))
+       ((symbol-function 'shr-tag-h5)
+        (lambda (dom)
+          (insert (propertize "**** " 'invisible t))
+          (shr-fontize-dom dom 'shr-h5)
+          (insert "\n")))
+       ((symbol-function 'shr-tag-h6)
+        (lambda (dom)
+          (insert (propertize "***** " 'invisible t))
+          (shr-fontize-dom dom 'shr-h6)
+          (insert "\n")))
 
-               ((symbol-function 'shr-tag-p)
-                (lambda (dom)
-                  (cl-letf (((symbol-function 'shr-mark-fill)
-                             (lambda (_) nil)))
-                    (shr-generic dom)
-                    (insert "\n")))))
-      (shr-render-buffer
-       (current-buffer))
+       ((symbol-function 'shr-tag-p)
+        (lambda (dom)
+          (cl-letf (((symbol-function 'shr-mark-fill)
+                     (lambda (_) nil)))
+            (shr-generic dom)
+            (insert "\n")))))
+    (shr-insert-document dom)))
+
+(defun wiktionary-bro--render (url title html-text)
+  "Render HTML-TEXT of a Wiktionary entry with URL and TITLE."
+  (let* ((parsed (with-temp-buffer
+                   (insert html-text)
+                   (libxml-parse-html-region
+                    (point-min)
+                    (point-max))))
+         (buffer (generate-new-buffer title))
+         (same-win-p (eq major-mode 'wiktionary-bro-mode)))
+    (with-current-buffer buffer
+      (insert url)
+      (insert "\n\n")
+      (wiktionary-bro--shr-insert-doc parsed)
       (wiktionary-bro-mode)
-      ;; (org-indent-mode)
       (read-only-mode)
-      (rename-buffer title :uniq))))
+      (goto-char (point-min))
+      (if same-win-p
+          (pop-to-buffer-same-window buffer)
+        (pop-to-buffer buffer)))))
 
 (defun wiktionary-bro (&optional beginning end)
-  "Look up a Wiktionary entry
+  "Look up a Wiktionary entry.
 `BEGINNING' and `END' correspond to the selected text with a word
 to look up. If there is no selection provided, additional input
 will be required."
@@ -194,7 +209,7 @@ will be required."
    ;; because it doesn't produce an error in a buffer without a mark
    (if (use-region-p) (list (region-beginning) (region-end))
      (list nil nil)))
-  (let* ((word (wiktionary-bro--get-original-word beginning end))
+  (let* ((word (url-hexify-string (wiktionary-bro--get-original-word beginning end)))
          (url (format
                "https://en.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
                word)))
@@ -210,12 +225,19 @@ will be required."
          (let-alist data
            (if .error
                (message .error.info)
-             (wiktionary-bro--render
-              .parse.title
-              .parse.text.*))))))))
+             (let ((wiki-url (ignore-errors
+                               (thread-last
+                                 (elt .parse.langlinks 0)
+                                 (alist-get 'url)
+                                 (replace-regexp-in-string
+                                  "//[[:alpha:]]+." "//")))))
+               (wiktionary-bro--render
+                wiki-url
+                .parse.title
+                .parse.text.*)))))))))
 
 (defun wiktionary-bro-at-point (word-point)
-  "Look up a Wiktionary entry for word at point."
+  "Look up a Wiktionary entry for WORD-POINT."
   (interactive (list (point)))
   (save-mark-and-excursion
     (unless (wiktionary-bro--at-the-beginning-of-word-p word-point)
@@ -230,15 +252,13 @@ will be required."
 Dispatches proper fn depending of region selection or
 thing-at-point, or prompts for a word."
   (interactive)
-  (let (beg end)
-    (if (use-region-p)
-        (progn
-          (setq beg (region-beginning)
-                end (region-end))
-          (wiktionary-bro beg end))
-      (if (thing-at-point 'word)
-          (wiktionary-bro-at-point (point))
-        (wiktionary-bro)))))
+  (if (use-region-p)
+      (wiktionary-bro
+       (region-beginning)
+       (region-end))
+    (if (thing-at-point 'word)
+        (wiktionary-bro-at-point (point))
+      (wiktionary-bro))))
 
 (provide 'wiktionary-bro)
 
