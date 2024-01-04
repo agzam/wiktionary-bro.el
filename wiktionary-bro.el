@@ -69,6 +69,54 @@ Otherwise, user must provide additional information."
       (buffer-substring-no-properties beginning end)
     (read-string "Wiktionary look up: ")))
 
+(defun wiktionary-bro--table-to-ascii (table)
+  "Renders shr-dom representation of a TABLE in ascii."
+  (unless (and (consp table) (alist-get 'tbody (cdr table)))
+    (user-error "Parameter must be a list representing a table"))
+
+  (let* ((cell-p (lambda (cell)
+                   (or (eq (car-safe cell) 'th)
+                       (eq (car-safe cell) 'td))))
+         (tbody (alist-get 'tbody (cdr table)))
+         (rows (seq-filter (lambda (x) (eq (car-safe x) 'tr)) tbody))
+         (cols-num (thread-last
+                     tbody
+                     (seq-filter (lambda (x) (eq (car-safe x) 'tr)))
+                     (seq-map (lambda (row)
+                                (length
+                                 (seq-filter cell-p row))))
+                     (seq-max)))
+         (cells (thread-last
+                  tbody
+                  (seq-filter (lambda (x) (eq (car-safe x) 'tr)))
+                  (seq-mapcat (lambda (row)
+                                (seq-filter cell-p row))))))
+    (with-temp-buffer
+      (table-insert cols-num (length rows))
+      (dolist (cell cells)
+        (let* ((attrs (nth 1 cell))
+               (content (seq-drop cell 2))
+               (content (if (eq 1 (length content)) (car content)
+                          (with-temp-buffer
+                            (shr-tag-span
+                             (append '(span nil) content))
+                            (buffer-string))))
+               (colspan (string-to-number (or (alist-get 'colspan attrs) "")))
+               (rowspan (string-to-number (or (alist-get 'rowspan attrs) ""))))
+          (dotimes (_ (1- colspan))
+            (ignore-errors
+              (table-span-cell 'right)))
+          (dotimes (_ (1- rowspan))
+            (ignore-errors
+              (table-span-cell 'below)))
+          (ignore-errors
+            (table-insert-sequence
+             content 1 1 1 'center)
+            (table-forward-cell))))
+      (buffer-substring-no-properties
+       (point-min)
+       (point-max)))))
+
 (defun wiktionary-bro--shr-insert-doc (dom)
   "Overrides shr-insert-doc for cleaner content."
   (cl-letf*
@@ -115,18 +163,8 @@ Otherwise, user must provide additional information."
        (shr-tag-table* (symbol-function 'shr-tag-table))
        ((symbol-function 'shr-tag-table)
         (lambda (dom)
-          ""
-          ;; (cl-letf (((symbol-function 'shr-tag-ul)
-          ;;            (lambda (d)
-          ;;              (insert "\n")
-          ;;              (shr-generic d)))
-          ;;           ((symbol-function 'shr-tag-li)
-          ;;            (lambda (d)
-          ;;              (insert "\n| ")
-          ;;              (shr-generic d)
-          ;;              (insert " |"))))
-          ;;   ;; (funcall shr-tag-table* dom)
-          ;;   )
+          nil
+          ;; (insert (wiktionary-bro--table-to-ascii dom))
           ))
 
        (shr-tag-a* (symbol-function 'shr-tag-a))
