@@ -5,11 +5,11 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: December 24, 2022
+;; Modified: December 7, 2025
 ;; Version: 1.0.0
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
-;; Package-Requires: ((emacs "28.1") (request "0.3.0"))
+;; Package-Requires: ((emacs "30.1") (request "0.3.3"))
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;

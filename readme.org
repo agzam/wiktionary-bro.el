@@ -1,6 +1,8 @@
 #+TITLE: Lookup Wiktionary entries a bit more conveniently.
 [[https://github.com/agzam/wiktionary-bro.el/actions/workflows/run-tests.yml][https://github.com/agzam/wiktionary-bro.el/actions/workflows/run-tests.yml/badge.svg]]
 
+#+html: <img src="./test/screenshot.png" width="1000px" alt="screenshot">
+
 ** Usage
 - Install using your favorite package manager.
   /It's not published yet, you'd have to grab it directly from the repo./
