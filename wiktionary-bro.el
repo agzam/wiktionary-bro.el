@@ -6,7 +6,7 @@
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
 ;; Modified: December 24, 2022
-;; Version: 0.0.1
+;; Version: 1.0.0
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;; Package-Requires: ((emacs "28.1") (request "0.3.0") (org "9"))
@@ -15,19 +15,22 @@
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
-;;; Description
+;;; Commentary:
 ;;
 ;; Lookup Wiktionary entries a bit more conveniently
-;;
-;;; Commentary:
+;; It renders entries in Org-mode outline
+;; and tables in ASCII
 ;;
 ;;; Code:
 
-(require 'request)
 (require 'shr)
+(require 'dom)
 (require 'let-alist)
 (require 'outline)
 (require 'org-indent)
+
+;; request is only needed for HTTP calls, not table rendering
+(require 'request nil t)
 
 (defgroup wiktionary-bro nil
   "Lookup Wiktionary entries."
@@ -513,6 +516,7 @@ Creates a text representation with faces for headers and footnotes."
       (insert "\n\n")
       (wiktionary-bro--shr-insert-doc parsed)
       (wiktionary-bro-mode)
+      (setq-local truncate-lines t)  ; prevent line wrapping for tables
       (read-only-mode)
       (goto-char (point-min))
       (if same-win-p
@@ -538,10 +542,6 @@ will be required."
       :success
       (cl-function
        (lambda (&key data &allow-other-keys)
-         ;; (let ((b (generate-new-buffer "wiktionary")))
-         ;;   (with-current-buffer b
-         ;;     (insert (pp data))
-         ;;     (switch-to-buffer b)))
          (let-alist data
            (if .error
                (message .error.info)
