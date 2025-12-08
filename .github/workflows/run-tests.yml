@@ -1,0 +1,19 @@
+name: run test
+on: [push, pull_request]
+jobs:
+  Testing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@main
+
+      - name: Install Emacs
+        uses: purcell/setup-emacs@master
+        with:
+          version: 29.4
+
+      - name: Install dependent packages
+        run: make deps
+
+      - name: Run tests
+        run: make test

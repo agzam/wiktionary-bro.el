@@ -1,11 +1,17 @@
 #+TITLE: Lookup Wiktionary entries a bit more conveniently.
+[[https://github.com/agzam/wiktionary-bro.el/actions/workflows/run-tests.yml][https://github.com/agzam/wiktionary-bro.el/actions/workflows/run-tests.yml/badge.svg]]
 
 ** Usage
 - Install using your favorite package manager.
   /It's not published yet, you'd have to grab it directly from the repo./
+  
 - Use it: ~M-x wiktionary-bro-dwim~
   - =<TAB>= to collapse/expand sections
 
+- Pronunciation gets played via ffplay (typically bundled in ffmpeg), or you can set it to play through any other app by setting ~wiktionary-bro-audio-player~
+
+- Note that the content won't be wrapped, this is done so the tables are rendered properly.
+    
 ** Example configuration
 *** Doom Emacs
 =packages.el=:
