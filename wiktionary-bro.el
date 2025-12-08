@@ -148,7 +148,7 @@ Handles <br> tags by inserting newlines and <sup> with parentheses."
       (string-trim))))
 
 (defun wiktionary-bro--table-has-audio-p (table)
-  "Check if TABLE contains audio elements."
+  "Check if TABLE contain audio elements."
   (or
    ;; Check class attribute for audiotable
    (let ((class (alist-get 'class (cadr table))))
@@ -377,7 +377,7 @@ Creates a text representation with faces for headers and footnotes."
       (buffer-substring (point-min) (point-max))))))
 
 (defun wiktionary-bro--shr-insert-doc (dom)
-  "Overrides shr-insert-doc for cleaner content."
+  "Overrides shr-insert-doc of DOM for cleaner content."
   (cl-letf*
       (((symbol-function 'shr-tag-img)
         ;; remove images
@@ -570,7 +570,7 @@ will be required."
 (defun wiktionary-bro-dwim ()
   "Look up a Wiktionary entry.
 Dispatches proper fn depending of region selection or
-thing-at-point, or prompts for a word."
+`thing-at-point', or prompts for a word."
   (interactive)
   (if (use-region-p)
       (wiktionary-bro
