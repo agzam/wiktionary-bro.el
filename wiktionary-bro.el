@@ -34,6 +34,16 @@
   :prefix "wiktionary-bro-"
   :group 'applications)
 
+(defface wiktionary-bro-table-header
+  '((t :inherit bold))
+  "Face for table header cells."
+  :group 'wiktionary-bro)
+
+(defface wiktionary-bro-footnote-ref
+  '((t :inherit font-lock-warning-face :height 0.8))
+  "Face for footnote reference numbers in tables."
+  :group 'wiktionary-bro)
+
 (defvar wiktionary-bro-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "TAB") #'outline-cycle)
@@ -69,53 +79,271 @@ Otherwise, user must provide additional information."
       (buffer-substring-no-properties beginning end)
     (read-string "Wiktionary look up: ")))
 
-(defun wiktionary-bro--table-to-ascii (table)
-  "Renders shr-dom representation of a TABLE in ascii."
-  (unless (and (consp table) (alist-get 'tbody (cdr table)))
-    (user-error "Parameter must be a list representing a table"))
+(defun wiktionary-bro--dom-texts (dom)
+  "Recursively extract all text from DOM node, skipping style/script tags.
+Handles <br> tags by inserting newlines and <sup> with parentheses."
+  (cond
+   ((null dom) "")
+   ((stringp dom) dom)
+   ((consp dom)
+    (let ((tag (car-safe dom)))
+      (cond
+       ;; Skip style and script elements
+       ((memq tag '(style script)) "")
+       ;; Convert br to newline
+       ((eq tag 'br) "\n")
+       ;; Superscript - wrap in parentheses for clarity
+       ((eq tag 'sup)
+        (let ((inner (mapconcat #'wiktionary-bro--dom-texts (cddr dom) "")))
+          (if (string-empty-p inner) ""
+            (concat "(" inner ")"))))
+       ;; Recurse into other elements
+       (t (mapconcat #'wiktionary-bro--dom-texts (cddr dom) "")))))
+   (t "")))
 
-  (let* ((cell-p (lambda (cell)
+(defun wiktionary-bro--superscript-number (n)
+  "Convert number N to Unicode superscript string."
+  (let ((superscripts ["⁰" "¹" "²" "³" "⁴" "⁵" "⁶" "⁷" "⁸" "⁹"]))
+    (mapconcat (lambda (c)
+                 (aref superscripts (- c ?0)))
+               (number-to-string n) "")))
+
+(defun wiktionary-bro--cell-content-to-string (cell)
+  "Extract text content from a table CELL dom element."
+  (let ((text (wiktionary-bro--dom-texts cell)))
+    ;; Normalize whitespace but preserve intentional line breaks as " / "
+    (thread-last text
+      (replace-regexp-in-string "[ \t]+" " ")
+      (replace-regexp-in-string " *\n+ *" " / ")
+      (replace-regexp-in-string "^ */ *" "")
+      (replace-regexp-in-string " */ *$" "")
+      ;; Fix double parentheses from nested <sup> tags
+      (replace-regexp-in-string "((\\([^)]+\\)))" "(\\1)")
+      ;; Convert numeric footnotes to superscript: (1) → ¹
+      (replace-regexp-in-string
+       "(\\([0-9]+\\))"
+       (lambda (m)
+         (wiktionary-bro--superscript-number
+          (string-to-number (match-string 1 m)))))
+      (string-trim))))
+
+(defun wiktionary-bro--table-is-layout-p (table)
+  "Check if TABLE is a layout table (not a real data table).
+Layout tables typically have a single cell containing lists or other block elements."
+  (let* ((tbody (or (alist-get 'tbody (cdr table))
+                    (cdr table)))
+         (rows (seq-filter (lambda (x) (eq (car-safe x) 'tr)) tbody))
+         (cell-p (lambda (cell)
+                   (or (eq (car-safe cell) 'th)
+                       (eq (car-safe cell) 'td)))))
+    (and
+     ;; Single row
+     (= (length rows) 1)
+     ;; With cells that contain ul/ol lists
+     (let ((cells (seq-filter cell-p (car rows))))
+       (seq-some (lambda (cell)
+                   (seq-some (lambda (el)
+                               (memq (car-safe el) '(ul ol style)))
+                             (cddr cell)))
+                 cells)))))
+
+(defun wiktionary-bro--parse-table-to-grid (table)
+  "Parse HTML TABLE dom into a 2D grid handling colspan/rowspan.
+Returns (grid spans headers num-rows num-cols) where:
+- grid is a hash-table with (row . col) keys containing cell content
+- spans is a hash-table with (row . col) keys containing (rowspan . colspan)
+- headers is a hash-table marking which cells are th (headers)"
+  (let* ((tbody (or (alist-get 'tbody (cdr table))
+                    (cdr table)))
+         (rows (seq-filter (lambda (x) (eq (car-safe x) 'tr)) tbody))
+         (cell-p (lambda (cell)
                    (or (eq (car-safe cell) 'th)
                        (eq (car-safe cell) 'td))))
-         (tbody (alist-get 'tbody (cdr table)))
-         (rows (seq-filter (lambda (x) (eq (car-safe x) 'tr)) tbody))
-         (cols-num (thread-last
-                     tbody
-                     (seq-filter (lambda (x) (eq (car-safe x) 'tr)))
-                     (seq-map (lambda (row)
-                                (length
-                                 (seq-filter cell-p row))))
-                     (seq-max)))
-         (cells (thread-last
-                  tbody
-                  (seq-filter (lambda (x) (eq (car-safe x) 'tr)))
-                  (seq-mapcat (lambda (row)
-                                (seq-filter cell-p row))))))
+         (grid (make-hash-table :test 'equal))
+         (spans (make-hash-table :test 'equal))
+         (headers (make-hash-table :test 'equal))
+         (occupied (make-hash-table :test 'equal))
+         (num-rows (length rows))
+         (max-col 0)
+         (row-idx 0))
+
+    (dolist (row rows)
+      (let ((col-idx 0)
+            (cells (seq-filter cell-p row)))
+        (dolist (cell cells)
+          ;; Skip cells occupied by rowspan from above
+          (while (gethash (cons row-idx col-idx) occupied)
+            (cl-incf col-idx))
+          (let* ((tag (car cell))
+                 (attrs (nth 1 cell))
+                 (colspan (max 1 (string-to-number (or (alist-get 'colspan attrs) "1"))))
+                 (rowspan (max 1 (string-to-number (or (alist-get 'rowspan attrs) "1"))))
+                 (content (wiktionary-bro--cell-content-to-string cell)))
+            ;; Store content and span info at the origin cell
+            (puthash (cons row-idx col-idx) content grid)
+            (puthash (cons row-idx col-idx) (cons rowspan colspan) spans)
+            ;; Mark if this is a header cell
+            (when (eq tag 'th)
+              (puthash (cons row-idx col-idx) t headers))
+            ;; Mark all spanned cells as occupied
+            (dotimes (dr rowspan)
+              (dotimes (dc colspan)
+                (puthash (cons (+ row-idx dr) (+ col-idx dc)) t occupied)))
+            (setq max-col (max max-col (+ col-idx colspan)))
+            (cl-incf col-idx colspan))))
+      (cl-incf row-idx))
+
+    (list grid spans headers num-rows max-col)))
+
+(defun wiktionary-bro--table-to-ascii (table)
+  "Renders shr-dom representation of a TABLE in ascii.
+Creates a text representation with faces for headers and footnotes."
+  (unless (and (consp table)
+               (or (alist-get 'tbody (cdr table))
+                   (seq-find (lambda (x) (eq (car-safe x) 'tr)) (cdr table))))
+    (user-error "Parameter must be a list representing a table"))
+
+  (let* ((parsed (wiktionary-bro--parse-table-to-grid table))
+         (grid (nth 0 parsed))
+         (spans (nth 1 parsed))
+         (headers (nth 2 parsed))
+         (num-rows (nth 3 parsed))
+         (num-cols (nth 4 parsed))
+         (col-widths (make-vector num-cols 5)))
+
+    ;; Calculate column widths based on content
+    (maphash (lambda (pos content)
+               (when (stringp content)
+                 (let* ((col (cdr pos))
+                        (span-info (gethash pos spans))
+                        (colspan (if span-info (cdr span-info) 1)))
+                   (when (= colspan 1)
+                     (aset col-widths col
+                           (max (aref col-widths col)
+                                (min 32 (+ 2 (length content)))))))))
+             grid)
+
+    ;; Build ASCII table
     (with-temp-buffer
-      (table-insert cols-num (length rows))
-      (dolist (cell cells)
-        (let* ((attrs (nth 1 cell))
-               (content (seq-drop cell 2))
-               (content (if (eq 1 (length content)) (car content)
-                          (with-temp-buffer
-                            (shr-tag-span
-                             (append '(span nil) content))
-                            (buffer-string))))
-               (colspan (string-to-number (or (alist-get 'colspan attrs) "")))
-               (rowspan (string-to-number (or (alist-get 'rowspan attrs) ""))))
-          (dotimes (_ (1- colspan))
-            (ignore-errors
-              (table-span-cell 'right)))
-          (dotimes (_ (1- rowspan))
-            (ignore-errors
-              (table-span-cell 'below)))
-          (ignore-errors
-            (table-insert-sequence
-             content 1 1 1 'center)
-            (table-forward-cell))))
-      (buffer-substring-no-properties
-       (point-min)
-       (point-max)))))
+      (let ((skip-cells (make-hash-table :test 'equal))
+            (rowspan-at (make-hash-table :test 'equal))  ; (row . col) -> (origin-row . rowspan)
+            (separator-rows (make-hash-table :test 'equal)))
+
+        ;; Pre-calculate skip cells, rowspan info, and separator rows
+        (maphash (lambda (pos span-info)
+                   (let ((row (car pos))
+                         (col (cdr pos))
+                         (rowspan (car span-info))
+                         (colspan (cdr span-info))
+                         (content (gethash pos grid)))
+                     ;; Check if this is a separator row (spans all cols, empty content)
+                     (when (and (= col 0)
+                                (= colspan num-cols)
+                                (string-empty-p (or content "")))
+                       (puthash row t separator-rows))
+                     ;; Track rowspan info and mark spanned cells
+                     (dotimes (dr rowspan)
+                       (dotimes (dc colspan)
+                         (puthash (cons (+ row dr) (+ col dc))
+                                  (cons row rowspan) rowspan-at)
+                         (unless (and (= dr 0) (= dc 0))
+                           (puthash (cons (+ row dr) (+ col dc)) t skip-cells))))))
+                 spans)
+
+        ;; Helper to create horizontal line respecting rowspans
+        (let ((make-hline
+               (lambda (after-row)
+                 (let ((parts (list "+")))
+                   (dotimes (col num-cols)
+                     (let* ((rs-info (gethash (cons after-row col) rowspan-at))
+                            (origin-row (car rs-info))
+                            (rowspan (cdr rs-info))
+                            ;; Does a rowspan continue past this row?
+                            (continues (and rs-info
+                                            (< after-row (+ origin-row rowspan -1)))))
+                       (push (if continues
+                                 (make-string (aref col-widths col) ? )
+                               (make-string (aref col-widths col) ?-))
+                             parts)
+                       (push "+" parts)))
+                   (apply #'concat (nreverse parts))))))
+
+          ;; Top border - use proper format
+          (insert "+" (mapconcat (lambda (w) (make-string w ?-)) col-widths "+") "+\n")
+
+          ;; Render rows
+          (dotimes (row num-rows)
+            ;; Skip separator rows entirely
+            (unless (gethash row separator-rows)
+              ;; Render row content
+              (insert "|")
+              (let ((col 0))
+                (while (< col num-cols)
+                  ;; Get rowspan info for this position
+                  (let* ((rs-info (gethash (cons row col) rowspan-at))
+                         (origin-row (if rs-info (car rs-info) row))
+                         (rowspan (if rs-info (cdr rs-info) 1))
+                         ;; Get span info from the origin cell
+                         (origin-span (gethash (cons origin-row col) spans))
+                         (colspan (if origin-span (cdr origin-span) 1))
+                         ;; Calculate which row within the span this is
+                         (row-within-span (- row origin-row))
+                         ;; Middle row of the span (for vertical centering)
+                         (middle-offset (/ (1- rowspan) 2))
+                         (is-middle-row (= row-within-span middle-offset))
+                         ;; Get content from origin cell, show only on middle row
+                         (content (if is-middle-row
+                                      (or (gethash (cons origin-row col) grid) "")
+                                    ""))
+                         (is-header (gethash (cons origin-row col) headers))
+                         ;; Total width for colspan
+                         (total-width (+ (cl-loop for c from col below (+ col colspan)
+                                                  sum (aref col-widths c))
+                                         (1- colspan)))
+                         (inner-width (- total-width 2))
+                         (truncated (truncate-string-to-width content
+                                                              (max 1 inner-width)))
+                         ;; Apply faces to content
+                         (styled-content
+                          (if (string-empty-p truncated)
+                              truncated
+                            (if is-header
+                                (propertize truncated 'face 'wiktionary-bro-table-header)
+                              truncated)))
+                         ;; Center the text horizontally
+                         (padding-left (/ (- inner-width (length truncated)) 2))
+                         (padding-right (- inner-width (length truncated) padding-left)))
+                    (insert " "
+                            (make-string padding-left ? )
+                            styled-content
+                            (make-string padding-right ? )
+                            " |")
+                    (cl-incf col colspan))))
+              (insert "\n"))
+
+            ;; Draw horizontal line after this row
+            (let* ((next-is-sep (gethash (1+ row) separator-rows))
+                   (curr-is-sep (gethash row separator-rows))
+                   (is-last-row (= row (1- num-rows)))
+                   ;; Check if any rowspan continues past this row
+                   (any-continues nil))
+              (dotimes (col num-cols)
+                (let* ((rs-info (gethash (cons row col) rowspan-at))
+                       (origin-row (car rs-info))
+                       (rowspan (cdr rs-info)))
+                  (when (and rs-info (< row (+ origin-row rowspan -1)))
+                    (setq any-continues t))))
+              ;; Draw line unless we're inside a rowspan for all columns
+              (when (or (not any-continues)
+                        curr-is-sep
+                        next-is-sep
+                        is-last-row)
+                ;; For last row, always draw full border
+                (if is-last-row
+                    (insert "+" (mapconcat (lambda (w) (make-string w ?-)) col-widths "+") "+\n")
+                  (insert (funcall make-hline row) "\n"))))))
+
+      (buffer-substring (point-min) (point-max))))))
 
 (defun wiktionary-bro--shr-insert-doc (dom)
   "Overrides shr-insert-doc for cleaner content."
@@ -163,9 +391,12 @@ Otherwise, user must provide additional information."
        (shr-tag-table* (symbol-function 'shr-tag-table))
        ((symbol-function 'shr-tag-table)
         (lambda (dom)
-          nil
-          ;; (insert (wiktionary-bro--table-to-ascii dom))
-          ))
+          (if (wiktionary-bro--table-is-layout-p dom)
+              ;; Layout table - let shr render contents normally
+              (shr-generic dom)
+            ;; Real data table - render as ASCII
+            (ignore-errors
+              (insert "\n" (wiktionary-bro--table-to-ascii dom) "\n")))))
 
        (shr-tag-a* (symbol-function 'shr-tag-a))
        ((symbol-function 'shr-tag-a)
