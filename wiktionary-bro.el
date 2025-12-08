@@ -34,6 +34,11 @@
   :prefix "wiktionary-bro-"
   :group 'applications)
 
+(defcustom wiktionary-bro-audio-player "ffplay -nodisp -autoexit"
+  "Command to play audio files. The URL will be appended."
+  :type 'string
+  :group 'wiktionary-bro)
+
 (defface wiktionary-bro-table-header
   '((t :inherit bold))
   "Face for table header cells."
@@ -44,10 +49,25 @@
   "Face for footnote reference numbers in tables."
   :group 'wiktionary-bro)
 
+(defface wiktionary-bro-audio-button
+  '((t :inherit link :box (:line-width -1 :style released-button)))
+  "Face for audio play buttons."
+  :group 'wiktionary-bro)
+
+(defun wiktionary-bro-play-audio (url)
+  "Play audio from URL using `wiktionary-bro-audio-player'."
+  (interactive "sAudio URL: ")
+  (let ((full-url (if (string-prefix-p "//" url)
+                      (concat "https:" url)
+                    url)))
+    (message "Playing audio: %s" full-url)
+    (start-process-shell-command
+     "wiktionary-audio" nil
+     (format "%s %s" wiktionary-bro-audio-player (shell-quote-argument full-url)))))
+
 (defvar wiktionary-bro-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "TAB") #'outline-cycle)
-    (define-key map (kbd "RET") #'wiktionary-bro-dwim)
     map)
   "Keymap for `wiktionary-bro-mode'.")
 
@@ -127,6 +147,15 @@ Handles <br> tags by inserting newlines and <sup> with parentheses."
           (string-to-number (match-string 1 m)))))
       (string-trim))))
 
+(defun wiktionary-bro--table-has-audio-p (table)
+  "Check if TABLE contains audio elements."
+  (or
+   ;; Check class attribute for audiotable
+   (let ((class (alist-get 'class (cadr table))))
+     (and class (string-match-p "audiotable" class)))
+   ;; Or check for audio elements inside
+   (dom-by-tag table 'audio)))
+
 (defun wiktionary-bro--table-is-layout-p (table)
   "Check if TABLE is a layout table (not a real data table).
 Layout tables typically have a single cell containing lists or other block elements."
@@ -136,16 +165,18 @@ Layout tables typically have a single cell containing lists or other block eleme
          (cell-p (lambda (cell)
                    (or (eq (car-safe cell) 'th)
                        (eq (car-safe cell) 'td)))))
-    (and
-     ;; Single row
-     (= (length rows) 1)
-     ;; With cells that contain ul/ol lists
-     (let ((cells (seq-filter cell-p (car rows))))
-       (seq-some (lambda (cell)
-                   (seq-some (lambda (el)
-                               (memq (car-safe el) '(ul ol style)))
-                             (cddr cell)))
-                 cells)))))
+    (or
+     ;; Audio tables should be rendered by shr (to get audio buttons)
+     (wiktionary-bro--table-has-audio-p table)
+     ;; Single row with lists
+     (and
+      (= (length rows) 1)
+      (let ((cells (seq-filter cell-p (car rows))))
+        (seq-some (lambda (cell)
+                    (seq-some (lambda (el)
+                                (memq (car-safe el) '(ul ol style)))
+                              (cddr cell)))
+                  cells))))))
 
 (defun wiktionary-bro--parse-table-to-grid (table)
   "Parse HTML TABLE dom into a 2D grid handling colspan/rowspan.
@@ -397,6 +428,26 @@ Creates a text representation with faces for headers and footnotes."
             ;; Real data table - render as ASCII
             (ignore-errors
               (insert "\n" (wiktionary-bro--table-to-ascii dom) "\n")))))
+
+       ;; Handle audio elements - create playable button
+       ((symbol-function 'shr-tag-audio)
+        (lambda (dom)
+          ;; Find the first source URL (prefer ogg/mp3)
+          (let* ((sources (dom-by-tag dom 'source))
+                 (url (cl-loop for src in sources
+                               for src-url = (dom-attr src 'src)
+                               when src-url return src-url)))
+            (when url
+              (insert " ")
+              (insert-text-button
+               "▶ Play"
+               'face 'wiktionary-bro-audio-button
+               'audio-url url
+               'action (lambda (btn)
+                         (wiktionary-bro-play-audio (button-get btn 'audio-url)))
+               'follow-link t
+               'help-echo (format "Play audio: %s" url))
+              (insert " ")))))
 
        (shr-tag-a* (symbol-function 'shr-tag-a))
        ((symbol-function 'shr-tag-a)
