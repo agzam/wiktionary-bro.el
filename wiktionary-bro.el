@@ -83,10 +83,10 @@ This determines which language version of Wiktionary to use."
      (format "%s %s" wiktionary-bro-audio-player (shell-quote-argument full-url)))))
 
 (defvar-local wiktionary-bro-current-language nil
-  "The language code for the current wiktionary-bro buffer.")
+  "The language code for the current `wiktionary-bro' buffer.")
 
 (defvar-local wiktionary-bro-current-word nil
-  "The word being displayed in the current wiktionary-bro buffer.")
+  "The word being displayed in the current `wiktionary-bro' buffer.")
 
 (defvar-local wiktionary-bro-available-languages nil
   "Alist of available languages for the current entry.
@@ -547,7 +547,7 @@ Creates a text representation with faces for headers and footnotes."
   (and url (string-match-p "wikipedia\\.org" url)))
 
 (defun wiktionary-bro--handle-link ()
-  "Handle link at point in wiktionary-bro buffers.
+  "Handle link at point in `wiktionary-bro' buffers.
 Returns t if handled, nil otherwise."
   (when (eq major-mode 'wiktionary-bro-mode)
     (let* ((ctx (org-element-context))
@@ -569,7 +569,7 @@ Returns t if handled, nil otherwise."
            (t nil)))))))
 
 (defun wiktionary-bro-change-language (lang)
-  "Change the language of the current wiktionary-bro buffer and re-render.
+  "Change the language of the current `wiktionary-bro' buffer and re-render.
 LANG is the language code (e.g., \"en\", \"fr\", \"de\")."
   (interactive
    (list
