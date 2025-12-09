@@ -5,8 +5,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: December 7, 2025
-;; Version: 1.0.0
+;; Modified: December 9, 2025
+;; Version: 1.1.0
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;; Package-Requires: ((emacs "30.1") (request "0.3.3"))
@@ -21,7 +21,13 @@
 ;; It renders entries in Org-mode outline
 ;; and tables in ASCII
 ;;
-;; Lookup Wiktionary entries a bit more conveniently
+;; Features:
+;; - Look up words in Wiktionary with `wiktionary-bro-dwim'
+;; - Navigate Wiktionary links by pressing RET (opens in wiktionary-bro buffer)
+;; - External links (Wikipedia, etc.) open in browser
+;; - Multi-language support: customize `wiktionary-bro-language' or use C-c C-l
+;; - Audio pronunciation playback
+;; - Clean org-mode outline rendering with collapsible sections
 
 ;;; Code:
 
@@ -41,6 +47,12 @@
 
 (defcustom wiktionary-bro-audio-player "ffplay -nodisp -autoexit"
   "Command to play audio files. The URL will be appended."
+  :type 'string
+  :group 'wiktionary-bro)
+
+(defcustom wiktionary-bro-language "en"
+  "Default language code for Wiktionary (e.g., \"en\", \"fr\", \"de\").
+This determines which language version of Wiktionary to use."
   :type 'string
   :group 'wiktionary-bro)
 
@@ -70,15 +82,28 @@
      "wiktionary-audio" nil
      (format "%s %s" wiktionary-bro-audio-player (shell-quote-argument full-url)))))
 
+(defvar-local wiktionary-bro-current-language nil
+  "The language code for the current wiktionary-bro buffer.")
+
+(defvar-local wiktionary-bro-current-word nil
+  "The word being displayed in the current wiktionary-bro buffer.")
+
+(defvar-local wiktionary-bro-available-languages nil
+  "Alist of available languages for the current entry.
+Each element is (LANG-CODE . LANG-NAME).")
+
 (defvar wiktionary-bro-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "TAB") #'outline-cycle)
+    (define-key map (kbd "C-c C-l") #'wiktionary-bro-change-language)
     map)
   "Keymap for `wiktionary-bro-mode'.")
 
 (define-derived-mode wiktionary-bro-mode
   org-mode "Wiktionary"
-  "Major mode for browsing Wiktionary entries.")
+  "Major mode for browsing Wiktionary entries."
+  :group 'wiktionary-bro
+  ;; Install link navigation hook
+  (add-hook 'org-open-at-point-functions #'wiktionary-bro--handle-link nil t))
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether WORD-POINT points to the beginning of the word."
@@ -163,7 +188,8 @@ Handles <br> tags by inserting newlines and <sup> with parentheses."
 
 (defun wiktionary-bro--table-is-layout-p (table)
   "Check if TABLE is a layout table (not a real data table).
-Layout tables typically have a single cell containing lists or other block elements."
+Layout tables typically have a single cell containing lists or other
+block elements."
   (let* ((tbody (or (alist-get 'tbody (cdr table))
                     (cdr table)))
          (rows (seq-filter (lambda (x) (eq (car-safe x) 'tr)) tbody))
@@ -459,11 +485,12 @@ Creates a text representation with faces for headers and footnotes."
         (lambda (dom)
           ;; fix internal links
           ;; otherwise they won't be navigable
-          (let ((href (alist-get 'href (cadr dom))))
+          (let* ((href (alist-get 'href (cadr dom)))
+                 (lang (or wiktionary-bro-current-language wiktionary-bro-language "en")))
             (unless (string-match-p "https://" href)
               (setf
                (alist-get 'href (cadr dom))
-               (concat "https://wiktionary.org" href)))
+               (concat "https://" lang ".wiktionary.org" href)))
             (funcall shr-tag-a* dom))))
 
        ((symbol-function 'shr-tag-h1)
@@ -504,8 +531,77 @@ Creates a text representation with faces for headers and footnotes."
             (insert "\n")))))
     (shr-insert-document dom)))
 
-(defun wiktionary-bro--render (url title html-text)
-  "Render HTML-TEXT of a Wiktionary entry with URL and TITLE."
+(defun wiktionary-bro--extract-word-from-url (url)
+  "Extract the word/page name from a Wiktionary URL."
+  (when (string-match "/wiki/\\([^#?]+\\)" url)
+    (decode-coding-string (url-unhex-string (match-string 1 url)) 'utf-8)))
+
+(defun wiktionary-bro--wiktionary-url-p (url)
+  "Check if URL is a Wiktionary URL."
+  (and url (string-match-p "wiktionary\\.org" url)))
+
+(defun wiktionary-bro--wikipedia-url-p (url)
+  "Check if URL is a Wikipedia URL."
+  (and url (string-match-p "wikipedia\\.org" url)))
+
+(defun wiktionary-bro--handle-link ()
+  "Handle link at point in wiktionary-bro buffers.
+Returns t if handled, nil otherwise."
+  (when (eq major-mode 'wiktionary-bro-mode)
+    (let* ((ctx (org-element-context))
+           (type (org-element-type ctx)))
+      (when (eq type 'link)
+        (let ((url (org-element-property :raw-link ctx)))
+          (cond
+           ;; Handle wiktionary links
+           ((wiktionary-bro--wiktionary-url-p url)
+            (when-let ((word (wiktionary-bro--extract-word-from-url url)))
+              (wiktionary-bro-lookup word wiktionary-bro-current-language)
+              t))
+           ;; Handle wikipedia and other external links
+           ((or (wiktionary-bro--wikipedia-url-p url)
+                (string-prefix-p "http" url))
+            (browse-url url)
+            t)
+           ;; Let org-mode handle other links
+           (t nil)))))))
+
+(defun wiktionary-bro-change-language (lang)
+  "Change the language of the current wiktionary-bro buffer and re-render.
+LANG is the language code (e.g., \"en\", \"fr\", \"de\")."
+  (interactive
+   (list
+    (if (and (eq major-mode 'wiktionary-bro-mode)
+             wiktionary-bro-available-languages)
+        ;; Use completing-read with available languages
+        (let* ((current (or wiktionary-bro-current-language wiktionary-bro-language "en"))
+               (choices (mapcar (lambda (pair)
+                                  (cons (format "%s (%s)" (cdr pair) (car pair))
+                                        (car pair)))
+                                wiktionary-bro-available-languages))
+               (selection (completing-read
+                          (format "Language (current: %s): " current)
+                          choices
+                          nil nil nil nil
+                          ;; Default to current language
+                          (car (rassoc current choices)))))
+          (or (cdr (assoc selection choices)) selection))
+      ;; Fallback to simple string input
+      (read-string
+       (format "Language code (current: %s): "
+               (or wiktionary-bro-current-language wiktionary-bro-language "en"))
+       nil nil
+       (or wiktionary-bro-current-language wiktionary-bro-language "en")))))
+  (unless (eq major-mode 'wiktionary-bro-mode)
+    (user-error "Not in a wiktionary-bro buffer"))
+  (unless wiktionary-bro-current-word
+    (user-error "No word associated with this buffer"))
+  (wiktionary-bro-lookup wiktionary-bro-current-word lang))
+
+(defun wiktionary-bro--render (url title html-text word lang available-langs)
+  "Render HTML-TEXT of a Wiktionary entry.
+URL is the entry URL, TITLE is the page title, WORD is the lookup word,
+LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
   (let* ((parsed (with-temp-buffer
                    (insert html-text)
                    (libxml-parse-html-region
@@ -518,12 +614,50 @@ Creates a text representation with faces for headers and footnotes."
       (insert "\n\n")
       (wiktionary-bro--shr-insert-doc parsed)
       (wiktionary-bro-mode)
+      (setq-local wiktionary-bro-current-word word)
+      (setq-local wiktionary-bro-current-language lang)
+      (setq-local wiktionary-bro-available-languages available-langs)
       (setq-local truncate-lines t)  ; prevent line wrapping for tables
       (read-only-mode)
       (goto-char (point-min))
       (if same-win-p
           (pop-to-buffer-same-window buffer)
         (pop-to-buffer buffer)))))
+
+(defun wiktionary-bro-lookup (word &optional lang)
+  "Look up WORD in Wiktionary using language LANG (defaults to `wiktionary-bro-language')."
+  (let* ((lang (or lang wiktionary-bro-current-language wiktionary-bro-language "en"))
+         (encoded-word (if (string-match-p "%" word)
+                           word  ; Already encoded
+                         (url-hexify-string word)))
+         (url (format
+               "https://%s.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
+               lang encoded-word)))
+    (request url
+      :parser #'json-read
+      :success
+      (cl-function
+       (lambda (&key data &allow-other-keys)
+         (let-alist data
+           (if .error
+               (message .error.info)
+             (let* ((wiki-url (format "https://%s.wiktionary.org/wiki/%s"
+                                      lang encoded-word))
+                    ;; Extract available languages from langlinks
+                    (available-langs
+                     (when .parse.langlinks
+                       (cons (cons lang (upcase lang))  ; Include current language
+                             (mapcar (lambda (link)
+                                       (let-alist link
+                                         (cons .lang .*)))
+                                     (append .parse.langlinks nil))))))
+               (wiktionary-bro--render
+                wiki-url
+                .parse.title
+                .parse.text.*
+                word
+                lang
+                available-langs)))))))))
 
 (defun wiktionary-bro (&optional beginning end)
   "Look up a Wiktionary entry.
@@ -535,28 +669,8 @@ will be required."
    ;; because it doesn't produce an error in a buffer without a mark
    (if (use-region-p) (list (region-beginning) (region-end))
      (list nil nil)))
-  (let* ((word (url-hexify-string (wiktionary-bro--get-original-word beginning end)))
-         (url (format
-               "https://en.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
-               word)))
-    (request url
-      :parser #'json-read
-      :success
-      (cl-function
-       (lambda (&key data &allow-other-keys)
-         (let-alist data
-           (if .error
-               (message .error.info)
-             (let ((wiki-url (ignore-errors
-                               (thread-last
-                                 (elt .parse.langlinks 0)
-                                 (alist-get 'url)
-                                 (replace-regexp-in-string
-                                  "//[[:alpha:]]+." "//")))))
-               (wiktionary-bro--render
-                wiki-url
-                .parse.title
-                .parse.text.*)))))))))
+  (let ((word (wiktionary-bro--get-original-word beginning end)))
+    (wiktionary-bro-lookup word)))
 
 (defun wiktionary-bro-at-point (word-point)
   "Look up a Wiktionary entry for WORD-POINT."

@@ -9,10 +9,19 @@
   
 - Use it: ~M-x wiktionary-bro-dwim~
   - =<TAB>= to collapse/expand sections
+  - =RET= on Wiktionary links to navigate to that entry (opens in wiktionary-bro buffer)
+  - =RET= on Wikipedia/external links to open in browser
+  - =C-c C-l= to change the language and re-render the current entry (shows available languages)
 
 - Pronunciation gets played via ffplay (typically bundled in ffmpeg), or you can set it to play through any other app by setting ~wiktionary-bro-audio-player~
 
 - Note that the content won't be wrapped, this is done so the tables are rendered properly.
+
+*** Multi-language support
+- Set ~wiktionary-bro-language~ to change the default language (e.g., ="fr"= for French, ="de"= for German)
+- In a wiktionary-bro buffer, press =C-c C-l= to change the language and re-render the entry
+- The language picker shows only languages that have an entry for the current word
+- Links within wiktionary-bro buffers respect the current language setting
     
 ** Example configuration
 *** Doom Emacs
