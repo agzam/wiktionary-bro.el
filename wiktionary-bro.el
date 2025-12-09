@@ -6,7 +6,7 @@
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
 ;; Modified: December 9, 2025
-;; Version: 1.1.0
+;; Version: 1.1.1
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;; Package-Requires: ((emacs "30.1") (request "0.3.3"))
@@ -103,7 +103,9 @@ Each element is (LANG-CODE . LANG-NAME).")
   "Major mode for browsing Wiktionary entries."
   :group 'wiktionary-bro
   ;; Install link navigation hook
-  (add-hook 'org-open-at-point-functions #'wiktionary-bro--handle-link nil t))
+  (add-hook 'org-open-at-point-functions #'wiktionary-bro--handle-link nil t)
+  ;; Use eww for external links by default
+  (setq-local browse-url-browser-function #'eww-browse-url))
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether WORD-POINT points to the beginning of the word."
@@ -607,7 +609,8 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
                    (libxml-parse-html-region
                     (point-min)
                     (point-max))))
-         (buffer (generate-new-buffer title))
+         (buffer-name (format "*wiktionary: %s*" title))
+         (buffer (generate-new-buffer buffer-name))
          (same-win-p (eq major-mode 'wiktionary-bro-mode)))
     (with-current-buffer buffer
       (insert url)

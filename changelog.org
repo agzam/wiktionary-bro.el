@@ -1,5 +1,9 @@
 #+TITLE: wiktionary-bro changelog
 
+* [1.1.1] - 2025-12-09
+- Buffer naming follows Emacs conventions: ~*wiktionary: word*~
+- External links now open in EWW by default (customizable via ~browse-url-browser-function~)
+
 * [1.1.0] - 2025-12-09
 - Smart link navigation: Wiktionary links open in wiktionary-bro buffers (RET)
 - External links (Wikipedia, etc.) open in browser

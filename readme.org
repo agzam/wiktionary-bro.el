@@ -22,6 +22,17 @@
 - In a wiktionary-bro buffer, press =C-c C-l= to change the language and re-render the entry
 - The language picker shows only languages that have an entry for the current word
 - Links within wiktionary-bro buffers respect the current language setting
+
+*** External links
+- External links (Wikipedia, etc.) open in EWW by default
+- To use your system browser instead:
+  #+begin_src emacs-lisp
+  (defun wiktionary-use-system-browser-h ()
+    "Use system browser for external links in wiktionary-bro."
+    (setq-local browse-url-browser-function #'browse-url-default-browser))
+
+  (add-hook 'wiktionary-bro-mode-hook #'wiktionary-use-system-browser-h)
+  #+end_src
     
 ** Example configuration
 *** Doom Emacs

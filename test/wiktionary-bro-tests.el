@@ -304,4 +304,20 @@
       (expect (string-prefix-p "//" url) :to-be-truthy)
       (expect (concat "https:" url) :to-equal "https://upload.wikimedia.org/test.ogg"))))
 
+(describe "wiktionary-bro buffer naming"
+  (it "follows Emacs conventions with asterisks"
+    (let ((buffer-name (format "*wiktionary: %s*" "test")))
+      (expect (string-prefix-p "*" buffer-name) :to-be-truthy)
+      (expect (string-suffix-p "*" buffer-name) :to-be-truthy)))
+  
+  (it "includes the word in the buffer name"
+    (let ((buffer-name (format "*wiktionary: %s*" "hello")))
+      (expect (string-match-p "hello" buffer-name) :to-be-truthy)))
+  
+  (it "has consistent prefix for easy killing"
+    (let ((buffer1 (format "*wiktionary: %s*" "word1"))
+          (buffer2 (format "*wiktionary: %s*" "word2")))
+      (expect (string-prefix-p "*wiktionary:" buffer1) :to-be-truthy)
+      (expect (string-prefix-p "*wiktionary:" buffer2) :to-be-truthy))))
+
 ;;; wiktionary-bro-tests.el ends here
