@@ -429,10 +429,10 @@ Creates a text representation with faces for headers and footnotes."
        ((symbol-function 'shr-tag-a)
         (lambda (dom)
           (let-alist (cadr dom)
-            (when-let ((desc (if (stringp (caddr dom))
-                                 (string-trim (caddr dom))
-                               (caddr (caddr dom))))
-                       (href .href))
+            (when-let* ((desc (if (stringp (caddr dom))
+                                  (string-trim (caddr dom))
+                                (caddr (caddr dom))))
+                        (href .href))
               (insert (format "[[%s][%s]]" href desc))))))
 
        (shr-tag-div* (symbol-function 'shr-tag-div))
@@ -452,7 +452,6 @@ Creates a text representation with faces for headers and footnotes."
             (let ((shr-internal-bullet '("- " . 2)))
               (funcall shr-tag-li* dom)))))
 
-       (shr-tag-table* (symbol-function 'shr-tag-table))
        ((symbol-function 'shr-tag-table)
         (lambda (dom)
           (if (wiktionary-bro--table-is-layout-p dom)
@@ -557,7 +556,7 @@ Returns t if handled, nil otherwise."
           (cond
            ;; Handle wiktionary links
            ((wiktionary-bro--wiktionary-url-p url)
-            (when-let ((word (wiktionary-bro--extract-word-from-url url)))
+            (when-let* ((word (wiktionary-bro--extract-word-from-url url)))
               (wiktionary-bro-lookup word wiktionary-bro-current-language)
               t))
            ;; Handle wikipedia and other external links
@@ -628,7 +627,8 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
         (pop-to-buffer buffer)))))
 
 (defun wiktionary-bro-lookup (word &optional lang)
-  "Look up WORD in Wiktionary using language LANG (defaults to `wiktionary-bro-language')."
+  "Look up WORD in Wiktionary using language LANG.
+Defaults to `wiktionary-bro-language'."
   (let* ((lang (or lang wiktionary-bro-current-language wiktionary-bro-language "en"))
          (encoded-word (if (string-match-p "%" word)
                            word  ; Already encoded
