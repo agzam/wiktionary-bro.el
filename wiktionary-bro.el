@@ -36,9 +36,7 @@
 (require 'let-alist)
 (require 'outline)
 (require 'org-indent)
-
-;; request is only needed for HTTP calls, not table rendering
-(require 'request nil t)
+(require 'request)
 
 (defgroup wiktionary-bro nil
   "Lookup Wiktionary entries."
@@ -72,8 +70,7 @@ This determines which language version of Wiktionary to use."
   :group 'wiktionary-bro)
 
 (defun wiktionary-bro-play-audio (url)
-  "Play audio from URL using `wiktionary-bro-audio-player'."
-  (interactive "sAudio URL: ")
+  "Play audio from URL using `wiktionary-bro-audio-player'.'."
   (let ((full-url (if (string-prefix-p "//" url)
                       (concat "https:" url)
                     url)))
@@ -102,24 +99,14 @@ Each element is (LANG-CODE . LANG-NAME).")
   org-mode "Wiktionary"
   "Major mode for browsing Wiktionary entries."
   :group 'wiktionary-bro
-  ;; Install link navigation hook
   (add-hook 'org-open-at-point-functions #'wiktionary-bro--handle-link nil t)
-  ;; Use eww for external links by default
   (setq-local browse-url-browser-function #'eww-browse-url))
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether WORD-POINT points to the beginning of the word."
   (save-excursion
-    ;; If we are at the beginning of a word
-    ;; this will take us to the beginning of the previous word.
-    ;; Otherwise, this will take us to the beginning of the current word.
     (backward-word)
-    ;; This will take us to the end of the previous word or to the end
-    ;; of the current word depending on whether we were at the beginning
-    ;; of a word.
     (forward-word)
-    ;; Compare our original position with wherever we're now to
-    ;; separate those two cases
     (< (point) word-point)))
 
 (defun wiktionary-bro--get-original-word (beginning end)
@@ -140,16 +127,12 @@ Handles <br> tags by inserting newlines and <sup> with parentheses."
    ((consp dom)
     (let ((tag (car-safe dom)))
       (cond
-       ;; Skip style and script elements
        ((memq tag '(style script)) "")
-       ;; Convert br to newline
        ((eq tag 'br) "\n")
-       ;; Superscript - wrap in parentheses for clarity
        ((eq tag 'sup)
         (let ((inner (mapconcat #'wiktionary-bro--dom-texts (cddr dom) "")))
           (if (string-empty-p inner) ""
             (concat "(" inner ")"))))
-       ;; Recurse into other elements
        (t (mapconcat #'wiktionary-bro--dom-texts (cddr dom) "")))))
    (t "")))
 
@@ -412,9 +395,8 @@ Creates a text representation with faces for headers and footnotes."
 (defun wiktionary-bro--shr-insert-doc (dom)
   "Overrides shr-insert-doc of DOM for cleaner content."
   (cl-letf*
-      (((symbol-function 'shr-tag-img)
-        ;; remove images
-        #'ignore)
+      ((;; remove images
+        (symbol-function 'shr-tag-img) #'ignore)
 
        ;; remove edit buttons
        (shr-tag-span* (symbol-function 'shr-tag-span))
