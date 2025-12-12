@@ -33,9 +33,9 @@
 
 (require 'shr)
 (require 'dom)
+(require 'org)
+(require 'org-element)
 (require 'let-alist)
-(require 'outline)
-(require 'org-indent)
 (require 'request)
 
 (defgroup wiktionary-bro nil
@@ -602,6 +602,7 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
       (setq-local wiktionary-bro-current-language lang)
       (setq-local wiktionary-bro-available-languages available-langs)
       (setq-local truncate-lines t)  ; prevent line wrapping for tables
+      (setq-local org-hide-emphasis-markers t)
       (read-only-mode)
       (goto-char (point-min))
       (if same-win-p
