@@ -530,7 +530,7 @@ Creates a text representation with faces for headers and footnotes."
 (defun wiktionary-bro--handle-link ()
   "Handle link at point in `wiktionary-bro' buffers.
 Returns t if handled, nil otherwise."
-  (when (eq major-mode 'wiktionary-bro-mode)
+  (when (derived-mode-p 'wiktionary-bro-mode)
     (let* ((ctx (org-element-context))
            (type (org-element-type ctx)))
       (when (eq type 'link)
@@ -554,7 +554,7 @@ Returns t if handled, nil otherwise."
 LANG is the language code (e.g., \"en\", \"fr\", \"de\")."
   (interactive
    (list
-    (if (and (eq major-mode 'wiktionary-bro-mode)
+    (if (and (derived-mode-p 'wiktionary-bro-mode)
              wiktionary-bro-available-languages)
         ;; Use completing-read with available languages
         (let* ((current (or wiktionary-bro-current-language wiktionary-bro-language "en"))
@@ -575,7 +575,7 @@ LANG is the language code (e.g., \"en\", \"fr\", \"de\")."
                (or wiktionary-bro-current-language wiktionary-bro-language "en"))
        nil nil
        (or wiktionary-bro-current-language wiktionary-bro-language "en")))))
-  (unless (eq major-mode 'wiktionary-bro-mode)
+  (unless (derived-mode-p 'wiktionary-bro-mode)
     (user-error "Not in a wiktionary-bro buffer"))
   (unless wiktionary-bro-current-word
     (user-error "No word associated with this buffer"))
@@ -592,7 +592,7 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
                     (point-max))))
          (buffer-name (format "*wiktionary: %s*" title))
          (buffer (generate-new-buffer buffer-name))
-         (same-win-p (eq major-mode 'wiktionary-bro-mode)))
+         (same-win-p (derived-mode-p 'wiktionary-bro-mode)))
     (with-current-buffer buffer
       (insert url)
       (insert "\n\n")
@@ -647,7 +647,7 @@ Defaults to `wiktionary-bro-language'."
 
 (defun wiktionary-bro (&optional beginning end)
   "Look up a Wiktionary entry.
-`BEGINNING' and `END' correspond to the selected text with a word
+BEGINNING and END correspond to the selected text with a word
 to look up. If there is no selection provided, additional input
 will be required."
   (interactive
