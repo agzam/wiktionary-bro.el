@@ -51,3 +51,23 @@
     :desc "Wiktionary"
     "xlw" #'wiktionary-bro-dwim))
 #+end_src
+
+** Similar packages for writing
+
+Wiktionary is an amazing dictionary, a comprehensive toolkit with main focus on word etymology, but it also gives you:
+
+- Definitions 
+- Pronunciation 
+- Parts of speech 
+- Translations 
+- Related words 
+- Inflections 
+
+You may like some other packages in the same space and maybe add them to your writer's toolkit:
+
+- [[https://melpa.org/#/define-it][define-it]] :: definition lookup
+- [[https://melpa.org/#/define-word][define-word]] :: definition lookup - grabs it from wordnik.com
+- [[https://github.com/jamescherti/quick-sdcv.el][quick-sdcv]] :: modern fork of much older [[https://melpa.org/#/sdcv][sdcv.el]] - interface to Stardict CLI. Lifesaver for when you suddenly have no internet.
+- [[https://melpa.org/#/mw-thesaurus][mw-thesaurus]] :: Merriam-Webster Thesaurus. There are a bunch of other thesauri packages, some of them are for quick and simple lookup/replacement, some of them are much more complex. This one displays results in an org-mode outline (just like wiktionary-bro)
+
+
