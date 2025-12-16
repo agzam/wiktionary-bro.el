@@ -4,8 +4,7 @@
 #+html: <img src="./test/screenshot.png" width="1000px" alt="screenshot">
 
 ** Usage
-- Install using your favorite package manager.
-  /It's not published yet, you'd have to grab it directly from the repo./
+- Install using your favorite package manager, is published on [[https://melpa.org/#/wiktionary-bro][MELPA]].
   
 - Use it: ~M-x wiktionary-bro-dwim~
   - =<TAB>= to collapse/expand sections
@@ -38,8 +37,7 @@
 *** Doom Emacs
 =packages.el=:
 #+begin_src emacs-lisp
-(package! wiktionary-bro
-  :recipe (:host github :repo "agzam/wiktionary-bro.el"))
+(package! wiktionary-bro)
 #+end_src
 
 =config.el=:
@@ -69,5 +67,3 @@ You may like some other packages in the same space and maybe add them to your wr
 - [[https://melpa.org/#/define-word][define-word]] :: definition lookup - grabs it from wordnik.com
 - [[https://github.com/jamescherti/quick-sdcv.el][quick-sdcv]] :: modern fork of much older [[https://melpa.org/#/sdcv][sdcv.el]] - interface to Stardict CLI. Lifesaver for when you suddenly have no internet.
 - [[https://melpa.org/#/mw-thesaurus][mw-thesaurus]] :: Merriam-Webster Thesaurus. There are a bunch of other thesauri packages, some of them are for quick and simple lookup/replacement, some of them are much more complex. This one displays results in an org-mode outline (just like wiktionary-bro)
-
-
