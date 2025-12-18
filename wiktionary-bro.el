@@ -100,7 +100,9 @@ Each element is (LANG-CODE . LANG-NAME).")
   "Major mode for browsing Wiktionary entries."
   :group 'wiktionary-bro
   (add-hook 'org-open-at-point-functions #'wiktionary-bro--handle-link nil t)
-  (setq-local browse-url-browser-function #'eww-browse-url))
+  (setq-local browse-url-browser-function #'eww-browse-url)
+  (setq-local truncate-lines t)  ; prevent line wrapping for tables
+  (setq-local org-hide-emphasis-markers t))
 
 (defun wiktionary-bro--at-the-beginning-of-word-p (word-point)
   "Predicate to check whether WORD-POINT points to the beginning of the word."
@@ -611,8 +613,6 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
       (setq-local wiktionary-bro-current-word word)
       (setq-local wiktionary-bro-current-language lang)
       (setq-local wiktionary-bro-available-languages available-langs)
-      (setq-local truncate-lines t)  ; prevent line wrapping for tables
-      (setq-local org-hide-emphasis-markers t)
       (read-only-mode)
       (goto-char (point-min))
       (if same-win-p
