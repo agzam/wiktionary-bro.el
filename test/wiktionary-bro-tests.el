@@ -4,8 +4,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: December 09, 2025
-;; Version: 1.1.0
+;; Modified: December 18, 2025
+;; Version: 1.1.2
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -319,5 +319,107 @@
           (buffer2 (format "*wiktionary: %s*" "word2")))
       (expect (string-prefix-p "*wiktionary:" buffer1) :to-be-truthy)
       (expect (string-prefix-p "*wiktionary:" buffer2) :to-be-truthy))))
+
+(describe "wiktionary-bro link handling with various DOM structures"
+  (it "handles links with nil content"
+    (with-temp-buffer
+      (let ((dom '(a ((href . "http://example.com")))))
+        (let-alist (cadr dom)
+          (expect .href :to-equal "http://example.com")
+          (expect (caddr dom) :to-be nil)
+          ;; Should extract href as fallback
+          (let ((desc (cond
+                       ((stringp (caddr dom))
+                        (string-trim (caddr dom)))
+                       ((and (consp (caddr dom))
+                             (stringp (caddr (caddr dom))))
+                        (string-trim (caddr (caddr dom))))
+                       (t (let ((text (wiktionary-bro--dom-texts dom)))
+                            (if (string-empty-p text) .href (string-trim text)))))))
+            (expect desc :to-equal "http://example.com"))))))
+  
+  (it "handles links with empty string content"
+    (with-temp-buffer
+      (let ((dom '(a ((href . "http://example.com")) "")))
+        (let-alist (cadr dom)
+          (expect (caddr dom) :to-equal "")
+          ;; Should skip empty content
+          (let ((desc (cond
+                       ((stringp (caddr dom))
+                        (string-trim (caddr dom)))
+                       ((and (consp (caddr dom))
+                             (stringp (caddr (caddr dom))))
+                        (string-trim (caddr (caddr dom))))
+                       (t (let ((text (wiktionary-bro--dom-texts dom)))
+                            (if (string-empty-p text) .href (string-trim text)))))))
+            ;; Empty string after trim, should use href
+            (expect (string-empty-p desc) :to-be-truthy))))))
+  
+  (it "handles links with direct string content"
+    (with-temp-buffer
+      (let ((dom '(a ((href . "http://example.com")) "Link Text")))
+        (let-alist (cadr dom)
+          (let ((desc (cond
+                       ((stringp (caddr dom))
+                        (string-trim (caddr dom)))
+                       ((and (consp (caddr dom))
+                             (stringp (caddr (caddr dom))))
+                        (string-trim (caddr (caddr dom))))
+                       (t (let ((text (wiktionary-bro--dom-texts dom)))
+                            (if (string-empty-p text) .href (string-trim text)))))))
+            (expect desc :to-equal "Link Text"))))))
+  
+  (it "handles links with nested element content"
+    (with-temp-buffer
+      (let ((dom '(a ((href . "http://example.com")) (span nil "Nested"))))
+        (let-alist (cadr dom)
+          (let ((desc (cond
+                       ((stringp (caddr dom))
+                        (string-trim (caddr dom)))
+                       ((and (consp (caddr dom))
+                             (stringp (caddr (caddr dom))))
+                        (string-trim (caddr (caddr dom))))
+                       (t (let ((text (wiktionary-bro--dom-texts dom)))
+                            (if (string-empty-p text) .href (string-trim text)))))))
+            (expect desc :to-equal "Nested"))))))
+  
+  (it "handles links with simple nested element (single text child)"
+    (with-temp-buffer
+      (let ((dom '(a ((href . "http://example.com")) (span nil "Simple"))))
+        (let-alist (cadr dom)
+          (let ((desc (cond
+                       ((stringp (caddr dom))
+                        (string-trim (caddr dom)))
+                       ((and (consp (caddr dom))
+                             (stringp (caddr (caddr dom))))
+                        (string-trim (caddr (caddr dom))))
+                       (t (let ((text (wiktionary-bro--dom-texts dom)))
+                            (if (string-empty-p text) .href (string-trim text)))))))
+            (expect desc :to-equal "Simple"))))))
+  
+  (it "falls back to dom-texts for truly complex nested content"
+    (with-temp-buffer
+      (let ((dom '(a ((href . "http://example.com")) (span nil (b nil "Bold")))))
+        (let-alist (cadr dom)
+          (let ((desc (cond
+                       ((stringp (caddr dom))
+                        (string-trim (caddr dom)))
+                       ((and (consp (caddr dom))
+                             (stringp (caddr (caddr dom))))
+                        (string-trim (caddr (caddr dom))))
+                       (t (let ((text (wiktionary-bro--dom-texts dom)))
+                            (if (string-empty-p text) .href (string-trim text)))))))
+            ;; (caddr dom) is (span ...), (caddr (caddr dom)) is (b nil "Bold") which is NOT a string
+            ;; so it falls through to wiktionary-bro--dom-texts
+            (expect desc :to-equal "Bold")))))))
+
+(describe "wiktionary-bro shr-tag-a override with nil href"
+  (it "handles links without href attribute gracefully"
+    (with-temp-buffer
+      (let ((dom '(a nil "text")))
+        (let ((href (alist-get 'href (cadr dom))))
+          (expect href :to-be nil)
+          ;; Should not error when href is nil
+          (expect (when href (string-match-p "https://" href)) :to-be nil))))))
 
 ;;; wiktionary-bro-tests.el ends here

@@ -5,8 +5,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: December 9, 2025
-;; Version: 1.1.1
+;; Modified: December 18, 2025
+;; Version: 1.1.2
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;; Package-Requires: ((emacs "30.1") (request "0.3.3"))
@@ -411,11 +411,20 @@ Creates a text representation with faces for headers and footnotes."
        ((symbol-function 'shr-tag-a)
         (lambda (dom)
           (let-alist (cadr dom)
-            (when-let* ((desc (if (stringp (caddr dom))
-                                  (string-trim (caddr dom))
-                                (caddr (caddr dom))))
-                        (href .href))
-              (insert (format "[[%s][%s]]" href desc))))))
+            (when-let ((href .href))
+              (let ((desc (cond
+                           ;; Direct string content
+                           ((stringp (caddr dom))
+                            (string-trim (caddr dom)))
+                           ;; Nested element with string content
+                           ((and (consp (caddr dom))
+                                 (stringp (caddr (caddr dom))))
+                            (string-trim (caddr (caddr dom))))
+                           ;; No description, use all text content or href as fallback
+                           (t (let ((text (wiktionary-bro--dom-texts dom)))
+                                (if (string-empty-p text) href (string-trim text)))))))
+                (when (and desc (not (string-empty-p desc)))
+                  (insert (format "[[%s][%s]]" href desc))))))))
 
        (shr-tag-div* (symbol-function 'shr-tag-div))
        ((symbol-function 'shr-tag-div)
@@ -470,10 +479,11 @@ Creates a text representation with faces for headers and footnotes."
           ;; otherwise they won't be navigable
           (let* ((href (alist-get 'href (cadr dom)))
                  (lang (or wiktionary-bro-current-language wiktionary-bro-language "en")))
-            (unless (string-match-p "https://" href)
-              (setf
-               (alist-get 'href (cadr dom))
-               (concat "https://" lang ".wiktionary.org" href)))
+            (when href
+              (unless (string-match-p "https://" href)
+                (setf
+                 (alist-get 'href (cadr dom))
+                 (concat "https://" lang ".wiktionary.org" href))))
             (funcall shr-tag-a* dom))))
 
        ((symbol-function 'shr-tag-h1)

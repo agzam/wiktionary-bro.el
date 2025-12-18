@@ -1,5 +1,8 @@
 #+TITLE: wiktionary-bro changelog
 
+* [1.1.2] - 2025-12-18
+- Fixed the bug with link handling with various DOM structures
+
 * [1.1.1] - 2025-12-09
 - Buffer naming follows Emacs conventions: ~*wiktionary: word*~
 - External links now open in EWW by default (customizable via ~browse-url-browser-function~)
