@@ -655,6 +655,7 @@ Defaults to `wiktionary-bro-language'."
                 lang
                 available-langs)))))))))
 
+;;;###autoload
 (defun wiktionary-bro (&optional beginning end)
   "Look up a Wiktionary entry.
 BEGINNING and END correspond to the selected text with a word
@@ -668,6 +669,7 @@ will be required."
   (let ((word (wiktionary-bro--get-original-word beginning end)))
     (wiktionary-bro-lookup word)))
 
+;;;###autoload
 (defun wiktionary-bro-at-point (word-point)
   "Look up a Wiktionary entry for WORD-POINT."
   (interactive (list (point)))
@@ -679,6 +681,7 @@ will be required."
     (activate-mark)
     (wiktionary-bro (region-beginning) (region-end))))
 
+;;;###autoload
 (defun wiktionary-bro-dwim ()
   "Look up a Wiktionary entry.
 Dispatches proper fn depending of region selection or
