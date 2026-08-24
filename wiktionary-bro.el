@@ -9,7 +9,7 @@
 ;; Version: 1.1.2
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
-;; Package-Requires: ((emacs "30.1") (request "0.3.3"))
+;; Package-Requires: ((emacs "29.4") (request "0.3.3"))
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
 ;;
