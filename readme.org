@@ -7,6 +7,7 @@
 - Install using your favorite package manager, is published on [[https://melpa.org/#/wiktionary-bro][MELPA]].
   
 - Use it: ~M-x wiktionary-bro-dwim~
+  - If the word has no page (wrong letter case, a typo, an inflected form), the closest page opens instead, e.g. "Aduanas" opens "aduanas"
   - =<TAB>= to collapse/expand sections
   - =RET= on Wiktionary links to navigate to that entry (opens in wiktionary-bro buffer)
   - =RET= on Wikipedia/external links to open in browser

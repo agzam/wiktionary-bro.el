@@ -4,8 +4,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: December 18, 2025
-;; Version: 1.1.2
+;; Modified: September 26, 2026
+;; Version: 1.2.0
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -421,5 +421,93 @@
           (expect href :to-be nil)
           ;; Should not error when href is nil
           (expect (when href (string-match-p "https://" href)) :to-be nil))))))
+
+(defun wiktionary-bro-test--fake-api (pages matches)
+  "Return a fake `request' for a Wiktionary that has only PAGES.
+The fuzzy title search answers MATCHES to any query."
+  (lambda (url &rest settings)
+    (if (plist-get settings :params)
+        (funcall (plist-get settings :complete)
+                 :data (vector "query" (vconcat matches) [] []))
+      (string-match "page=\\(.+\\)" url)
+      (let ((page (decode-coding-string (url-unhex-string (match-string 1 url)) 'utf-8)))
+        (funcall (plist-get settings :success)
+                 :data (if (member page pages)
+                           `((parse (title . ,page) (text (* . "<p>entry</p>"))))
+                         '((error (code . "missingtitle")
+                                  (info . "The page you specified doesn't exist.")))))))))
+
+(defun wiktionary-bro-test--messages ()
+  "Return the echo area messages sent to the `message' spy."
+  (mapcar (lambda (args) (apply #'format args)) (spy-calls-all-args 'message)))
+
+(describe "wiktionary-bro-lookup when the page is missing"
+  (before-each
+    (spy-on 'wiktionary-bro--render)
+    (spy-on 'message))
+
+  (it "shows the closest title instead"
+    (spy-on 'request :and-call-fake
+            (wiktionary-bro-test--fake-api '("aduanas") '("aduanas" "aduana")))
+    (wiktionary-bro-lookup "Aduanas" "es")
+    (let ((args (spy-calls-args-for 'wiktionary-bro--render 0)))
+      (expect (nth 0 args) :to-equal "https://es.wiktionary.org/wiki/aduanas")
+      (expect (nth 3 args) :to-equal "aduanas")
+      (expect (nth 4 args) :to-equal "es"))
+    (expect (wiktionary-bro-test--messages)
+            :to-equal '("No Wiktionary entry for \"Aduanas\", showing \"aduanas\"")))
+
+  (it "searches for the original word in the same language"
+    (spy-on 'request :and-call-fake (wiktionary-bro-test--fake-api nil nil))
+    (wiktionary-bro-lookup "Красивейшими" "ru")
+    (let ((search (seq-find (lambda (args) (plist-get (cdr args) :params))
+                            (spy-calls-all-args 'request))))
+      (expect (car search) :to-equal "https://ru.wiktionary.org/w/api.php")
+      (expect (alist-get "search" (plist-get (cdr search) :params) nil nil #'equal)
+              :to-equal "Красивейшими")))
+
+  (it "reports the missing word when search finds nothing"
+    (spy-on 'request :and-call-fake (wiktionary-bro-test--fake-api nil nil))
+    (wiktionary-bro-lookup "xqzvbn" "en")
+    (expect 'wiktionary-bro--render :not :to-have-been-called)
+    (expect (wiktionary-bro-test--messages)
+            :to-equal '("No Wiktionary entry for \"xqzvbn\"")))
+
+  (it "reports the missing word when search fails"
+    (spy-on 'request :and-call-fake
+            (lambda (_url &rest settings)
+              (if (plist-get settings :params)
+                  (funcall (plist-get settings :complete) :data nil)
+                (funcall (plist-get settings :success)
+                         :data '((error (code . "missingtitle")))))))
+    (wiktionary-bro-lookup "xqzvbn" "en")
+    (expect (wiktionary-bro-test--messages)
+            :to-equal '("No Wiktionary entry for \"xqzvbn\"")))
+
+  (it "searches only once when the closest title is missing too"
+    (spy-on 'request :and-call-fake (wiktionary-bro-test--fake-api nil '("aduanas")))
+    (wiktionary-bro-lookup "Aduanas" "en")
+    (expect (spy-calls-count 'request) :to-equal 3)
+    (expect 'wiktionary-bro--render :not :to-have-been-called)
+    (expect (wiktionary-bro-test--messages)
+            :to-equal '("No Wiktionary entry for \"Aduanas\"")))
+
+  (it "does not search for an existing page"
+    (spy-on 'request :and-call-fake (wiktionary-bro-test--fake-api '("aduana") '("aduanas")))
+    (wiktionary-bro-lookup "aduana" "en")
+    (expect (spy-calls-count 'request) :to-equal 1)
+    (expect (nth 3 (spy-calls-args-for 'wiktionary-bro--render 0)) :to-equal "aduana")
+    (expect 'message :not :to-have-been-called))
+
+  (it "shows other API errors without searching"
+    (spy-on 'request :and-call-fake
+            (lambda (_url &rest settings)
+              (funcall (plist-get settings :success)
+                       :data '((error (code . "invalidtitle")
+                                      (info . "Bad title \"100%\"."))))))
+    (wiktionary-bro-lookup "[" "en")
+    (expect (spy-calls-count 'request) :to-equal 1)
+    (expect (wiktionary-bro-test--messages)
+            :to-equal '("Wiktionary: Bad title \"100%\"."))))
 
 ;;; wiktionary-bro-tests.el ends here
