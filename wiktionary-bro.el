@@ -5,8 +5,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: December 18, 2025
-;; Version: 1.1.2
+;; Modified: September 26, 2026
+;; Version: 1.2.0
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;; Package-Requires: ((emacs "29.4") (request "0.3.3"))
@@ -619,9 +619,11 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
           (pop-to-buffer-same-window buffer)
         (pop-to-buffer buffer)))))
 
-(defun wiktionary-bro-lookup (word &optional lang)
+(defun wiktionary-bro-lookup (word &optional lang missed-word)
   "Look up WORD in Wiktionary using language LANG.
-Defaults to `wiktionary-bro-language'."
+LANG defaults to `wiktionary-bro-language'.  When WORD has no page, show
+the closest title instead.  MISSED-WORD is the word that had no page; it
+goes to the echo area and prevents a second fallback."
   (let* ((lang (or lang wiktionary-bro-current-language wiktionary-bro-language "en"))
          (encoded-word (if (string-match-p "%" word)
                            word  ; Already encoded
@@ -635,8 +637,14 @@ Defaults to `wiktionary-bro-language'."
       (cl-function
        (lambda (&key data &allow-other-keys)
          (let-alist data
-           (if .error
-               (message .error.info)
+           (cond
+            ((equal .error.code "missingtitle")
+             (if missed-word
+                 (message "No Wiktionary entry for \"%s\"" missed-word)
+               (wiktionary-bro--lookup-similar word lang)))
+            (.error
+             (message "Wiktionary: %s" .error.info))
+            (t
              (let* ((wiki-url (format "https://%s.wiktionary.org/wiki/%s"
                                       lang encoded-word))
                     ;; Extract available languages from langlinks
@@ -653,7 +661,29 @@ Defaults to `wiktionary-bro-language'."
                 .parse.text.*
                 word
                 lang
-                available-langs)))))))))
+                available-langs)
+               (when missed-word
+                 (message "No Wiktionary entry for \"%s\", showing \"%s\""
+                          missed-word word)))))))))))
+
+(defun wiktionary-bro--lookup-similar (word lang)
+  "Look up the Wiktionary title closest to WORD in language LANG.
+The fuzzy title search ignores letter case and tolerates typos and
+inflection endings: \"Aduanas\" finds \"aduanas\", \"aduanss\" finds \"aduana\"."
+  (request (format "https://%s.wiktionary.org/w/api.php" lang)
+    :params `(("action" . "opensearch")
+              ("format" . "json")
+              ("profile" . "fuzzy")
+              ("namespace" . "0")
+              ("limit" . "1")
+              ("search" . ,word))
+    :parser #'json-read
+    :complete
+    (cl-function
+     (lambda (&key data &allow-other-keys)
+       (if-let* ((title (and (vectorp data) (car (append (aref data 1) nil)))))
+           (wiktionary-bro-lookup title lang word)
+         (message "No Wiktionary entry for \"%s\"" word))))))
 
 ;;;###autoload
 (defun wiktionary-bro (&optional beginning end)
