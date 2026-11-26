@@ -5,8 +5,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: September 26, 2026
-;; Version: 1.2.0
+;; Modified: November 25, 2026
+;; Version: 1.3.0
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;; Package-Requires: ((emacs "29.4") (request "0.3.3"))
@@ -52,6 +52,12 @@
   "Default language code for Wiktionary (e.g., \"en\", \"fr\", \"de\").
 This determines which language version of Wiktionary to use."
   :type 'string
+  :group 'wiktionary-bro)
+
+(defcustom wiktionary-bro-image-max-height 100
+  "Maximum height of images in pixels, nil to show no images.
+Only frames that can display images show them."
+  :type '(choice (const :tag "No images" nil) natnum)
   :group 'wiktionary-bro)
 
 (defface wiktionary-bro-table-header
@@ -394,6 +400,39 @@ Creates a text representation with faces for headers and footnotes."
 
       (buffer-substring (point-min) (point-max))))))
 
+(defun wiktionary-bro--image-fetched (status overlay height)
+  "Show the image in the current `url-retrieve' buffer on OVERLAY.
+STATUS is the `url-retrieve' status, HEIGHT the height the page asks for.
+Kills the current buffer."
+  (unwind-protect
+      (when-let* (((not (plist-get status :error)))
+                  ((overlay-buffer overlay))
+                  (max-height wiktionary-bro-image-max-height)
+                  ((progn (goto-char (point-min))
+                          (re-search-forward "\r?\n\r?\n" nil t)))
+                  (image (apply #'create-image
+                                (buffer-substring (point) (point-max)) nil t
+                                :max-height max-height
+                                :ascent 'center
+                                ;; :height overrides :max-height
+                                (and height (list :height (min height max-height))))))
+        (overlay-put overlay 'display image)
+        ;; keeps the link underline off the image
+        (overlay-put overlay 'face 'default))
+    (kill-buffer)))
+
+(defun wiktionary-bro--display-image (img beg end)
+  "Fetch the image of IMG, a dom node, and show it over BEG..END.
+The text stays visible until the image arrives, and when it does not."
+  (when-let* (((and wiktionary-bro-image-max-height (display-images-p)))
+              (src (dom-attr img 'src))
+              (lang (or wiktionary-bro-current-language wiktionary-bro-language "en")))
+    (url-queue-retrieve
+     (url-expand-file-name src (format "https://%s.wiktionary.org/" lang))
+     #'wiktionary-bro--image-fetched
+     (list (make-overlay beg end) (shr-string-number (dom-attr img 'height)))
+     t t)))
+
 (defun wiktionary-bro--shr-insert-doc (dom)
   "Overrides shr-insert-doc of DOM for cleaner content."
   (cl-letf*
@@ -413,8 +452,9 @@ Creates a text representation with faces for headers and footnotes."
        ((symbol-function 'shr-tag-a)
         (lambda (dom)
           (let-alist (cadr dom)
-            (when-let ((href .href))
-              (let ((desc (cond
+            (when-let* ((href .href))
+              (let ((start (point))
+                    (desc (cond
                            ;; Direct string content
                            ((stringp (caddr dom))
                             (string-trim (caddr dom)))
@@ -426,7 +466,9 @@ Creates a text representation with faces for headers and footnotes."
                            (t (let ((text (wiktionary-bro--dom-texts dom)))
                                 (if (string-empty-p text) href (string-trim text)))))))
                 (when (and desc (not (string-empty-p desc)))
-                  (insert (format "[[%s][%s]]" href desc))))))))
+                  (insert (format "[[%s][%s]]" href desc))
+                  (when-let* ((img (car (dom-by-tag dom 'img))))
+                    (wiktionary-bro--display-image img start (point)))))))))
 
        (shr-tag-div* (symbol-function 'shr-tag-div))
        ((symbol-function 'shr-tag-div)
@@ -435,6 +477,18 @@ Creates a text representation with faces for headers and footnotes."
           (let ((id (alist-get 'id (cadr dom))))
             (unless (and id (string= id "toc") )
               (funcall shr-tag-div* dom)))))
+
+       ;; a figure is a block: the image link, a space, the caption
+       ((symbol-function 'shr-tag-figure)
+        (lambda (dom)
+          (shr-ensure-newline)
+          (shr-generic dom)
+          (shr-ensure-newline)))
+       ((symbol-function 'shr-tag-figcaption)
+        (lambda (dom)
+          (unless (string-empty-p (string-trim (wiktionary-bro--dom-texts dom)))
+            (shr-insert " "))
+          (shr-generic dom)))
 
        ;; list items should be prefixed with dash (not asterisk)
        (shr-tag-li* (symbol-function 'shr-tag-li))

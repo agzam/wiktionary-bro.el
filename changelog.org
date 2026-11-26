@@ -1,5 +1,9 @@
 #+TITLE: wiktionary-bro changelog
 
+* [1.3.0] - 2026-11-25
+- Images show in GUI frames, at most ~wiktionary-bro-image-max-height~ pixels tall (nil turns them off)
+- Each image with its caption sits on its own line, with a space between the image and the caption
+
 * [1.2.0] - 2026-09-26
 - A word without a Wiktionary page shows the closest page instead: letter case, typos and inflected forms (e.g. "Aduanas" shows "aduanas")
 - Clear echo area message when nothing matches: ~No Wiktionary entry for "word"~

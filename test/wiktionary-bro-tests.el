@@ -4,8 +4,8 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: September 26, 2026
-;; Version: 1.2.0
+;; Modified: November 25, 2026
+;; Version: 1.3.0
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;;
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -509,5 +509,136 @@ The fuzzy title search answers MATCHES to any query."
     (expect (spy-calls-count 'request) :to-equal 1)
     (expect (wiktionary-bro-test--messages)
             :to-equal '("Wiktionary: Bad title \"100%\"."))))
+
+(defun wiktionary-bro-test--figure (file caption)
+  "Return a Wiktionary thumbnail figure of FILE with CAPTION."
+  (format "<figure typeof=\"mw:File/Thumb\"><a href=\"/wiki/File:%s\" class=\"mw-file-description\"><img src=\"//thumb.wikimedia.org/thumb/%s/250px-%s\" width=\"250\" height=\"114\"/></a><figcaption>%s</figcaption></figure>"
+          file file file caption))
+
+(defun wiktionary-bro-test--file-link (file)
+  "Return the org link the renderer makes of the figure of FILE."
+  (format "[[https://en.wiktionary.org/wiki/File:%s][https://en.wiktionary.org/wiki/File:%s]]"
+          file file))
+
+(defun wiktionary-bro-test--render (html)
+  "Render HTML into the current buffer and return the text."
+  (wiktionary-bro--shr-insert-doc (wiktionary-bro-test--parse html))
+  (buffer-substring-no-properties (point-min) (point-max)))
+
+(describe "wiktionary-bro figures"
+  (it "puts a space between the image link and its caption"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render (wiktionary-bro-test--figure "Fclamp.jpg" "Clamps"))
+              :to-equal (concat (wiktionary-bro-test--file-link "Fclamp.jpg") " Clamps\n"))))
+
+  (it "puts each figure and the text around it on its own line"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render
+               (concat "before"
+                       (wiktionary-bro-test--figure "A.jpg" "a bicycle")
+                       (wiktionary-bro-test--figure "B.jpg" "a bicycle in use")
+                       "after"))
+              :to-equal (concat "before\n"
+                                (wiktionary-bro-test--file-link "A.jpg") " a bicycle\n"
+                                (wiktionary-bro-test--file-link "B.jpg") " a bicycle in use\n"
+                                "after\n"))))
+
+  (it "adds no space for an empty caption"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render (wiktionary-bro-test--figure "Logo.png" ""))
+              :to-equal (concat (wiktionary-bro-test--file-link "Logo.png") "\n")))))
+
+(describe "wiktionary-bro images"
+  (before-each
+    (spy-on 'url-queue-retrieve))
+
+  (it "fetches the image of a link where images can show"
+    (spy-on 'display-images-p :and-return-value t)
+    (with-temp-buffer
+      (wiktionary-bro-test--render (wiktionary-bro-test--figure "Fclamp.jpg" "Clamps"))
+      (expect (spy-calls-count 'url-queue-retrieve) :to-equal 1)
+      (pcase-let ((`(,url ,callback (,overlay ,height) . ,_)
+                   (spy-calls-args-for 'url-queue-retrieve 0)))
+        (expect url :to-equal "https://thumb.wikimedia.org/thumb/Fclamp.jpg/250px-Fclamp.jpg")
+        (expect callback :to-be #'wiktionary-bro--image-fetched)
+        (expect (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay))
+                :to-equal (wiktionary-bro-test--file-link "Fclamp.jpg"))
+        (expect height :to-equal 114))))
+
+  (it "fetches nothing in frames that cannot show images"
+    (spy-on 'display-images-p :and-return-value nil)
+    (with-temp-buffer
+      (wiktionary-bro-test--render (wiktionary-bro-test--figure "Fclamp.jpg" "Clamps"))
+      (expect 'url-queue-retrieve :not :to-have-been-called)
+      (expect (overlays-in (point-min) (point-max)) :to-equal nil)))
+
+  (it "fetches nothing when images are turned off"
+    (spy-on 'display-images-p :and-return-value t)
+    (with-temp-buffer
+      (let ((wiktionary-bro-image-max-height nil))
+        (wiktionary-bro-test--render (wiktionary-bro-test--figure "Fclamp.jpg" "Clamps")))
+      (expect 'url-queue-retrieve :not :to-have-been-called)))
+
+  (it "fetches nothing for links without images"
+    (spy-on 'display-images-p :and-return-value t)
+    (with-temp-buffer
+      (wiktionary-bro-test--render "<p><a href=\"/wiki/clamp\">clamp</a></p>")
+      (expect 'url-queue-retrieve :not :to-have-been-called))))
+
+(defun wiktionary-bro-test--fetched (status overlay height)
+  "Call `wiktionary-bro--image-fetched' from a fake response buffer.
+STATUS, OVERLAY and HEIGHT go to the callback.  Return the buffer."
+  (let ((response (generate-new-buffer " *wiktionary-bro-test response*")))
+    (with-current-buffer response
+      (insert "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\n\r\nIMAGE-BYTES")
+      (wiktionary-bro--image-fetched status overlay height))
+    response))
+
+(describe "wiktionary-bro--image-fetched"
+  :var (overlay)
+  (before-each
+    (spy-on 'create-image :and-return-value '(image :type jpeg :data "IMAGE-BYTES"))
+    (setq overlay (with-current-buffer (generate-new-buffer " *wiktionary-bro-test page*")
+                    (insert "[[link][link]]")
+                    (make-overlay (point-min) (point-max)))))
+  (after-each
+    (when (overlay-buffer overlay)
+      (kill-buffer (overlay-buffer overlay))))
+
+  (it "shows the image over the link at the height the page asks for"
+    (let ((wiktionary-bro-image-max-height 100))
+      (wiktionary-bro-test--fetched nil overlay 14))
+    (expect (overlay-get overlay 'display) :to-equal '(image :type jpeg :data "IMAGE-BYTES"))
+    (expect (spy-calls-args-for 'create-image 0)
+            :to-equal '("IMAGE-BYTES" nil t :max-height 100 :ascent center :height 14)))
+
+  (it "caps the height at the maximum"
+    (let ((wiktionary-bro-image-max-height 80))
+      (wiktionary-bro-test--fetched nil overlay 114))
+    (expect (spy-calls-args-for 'create-image 0)
+            :to-equal '("IMAGE-BYTES" nil t :max-height 80 :ascent center :height 80)))
+
+  (it "falls back to the maximum when the page gives no height"
+    (let ((wiktionary-bro-image-max-height 80))
+      (wiktionary-bro-test--fetched nil overlay nil))
+    (expect (spy-calls-args-for 'create-image 0)
+            :to-equal '("IMAGE-BYTES" nil t :max-height 80 :ascent center)))
+
+  (it "keeps the link text when the fetch fails"
+    (let ((response (wiktionary-bro-test--fetched '(:error (error http 429)) overlay 114)))
+      (expect (overlay-get overlay 'display) :to-be nil)
+      (expect (buffer-live-p response) :to-be nil)))
+
+  (it "ignores an image that arrives after images were turned off"
+    (let* ((wiktionary-bro-image-max-height nil)
+           (response (wiktionary-bro-test--fetched nil overlay 114)))
+      (expect 'create-image :not :to-have-been-called)
+      (expect (buffer-live-p response) :to-be nil)))
+
+  (it "ignores an image that arrives after its page was killed"
+    (kill-buffer (overlay-buffer overlay))
+    (let ((response (wiktionary-bro-test--fetched nil overlay 114)))
+      (expect 'create-image :not :to-have-been-called)
+      (expect (buffer-live-p response) :to-be nil))))
 
 ;;; wiktionary-bro-tests.el ends here
