@@ -5,7 +5,7 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: November 25, 2026
+;; Modified: November 26, 2026
 ;; Version: 1.3.0
 ;; Keywords: convenience multimedia
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
@@ -36,6 +36,7 @@
 (require 'org)
 (require 'org-element)
 (require 'let-alist)
+(require 'text-property-search)
 (require 'request)
 
 (defgroup wiktionary-bro nil
@@ -44,7 +45,7 @@
   :group 'applications)
 
 (defcustom wiktionary-bro-audio-player "ffplay -nodisp -autoexit"
-  "Command to play audio files. The URL will be appended."
+  "Command to play audio files.  The URL will be appended."
   :type 'string
   :group 'wiktionary-bro)
 
@@ -76,7 +77,7 @@ Only frames that can display images show them."
   :group 'wiktionary-bro)
 
 (defun wiktionary-bro-play-audio (url)
-  "Play audio from URL using `wiktionary-bro-audio-player'.'."
+  "Play audio from URL using `wiktionary-bro-audio-player'."
   (let ((full-url (if (string-prefix-p "//" url)
                       (concat "https:" url)
                     url)))
@@ -400,6 +401,12 @@ Creates a text representation with faces for headers and footnotes."
 
       (buffer-substring (point-min) (point-max))))))
 
+(defun wiktionary-bro--expand-url (url)
+  "Return URL, a link or image address from a Wiktionary page, as absolute."
+  (url-expand-file-name
+   url (format "https://%s.wiktionary.org/wiki/"
+               (or wiktionary-bro-current-language wiktionary-bro-language "en"))))
+
 (defun wiktionary-bro--image-fetched (status overlay height)
   "Show the image in the current `url-retrieve' buffer on OVERLAY.
 STATUS is the `url-retrieve' status, HEIGHT the height the page asks for.
@@ -425,10 +432,9 @@ Kills the current buffer."
   "Fetch the image of IMG, a dom node, and show it over BEG..END.
 The text stays visible until the image arrives, and when it does not."
   (when-let* (((and wiktionary-bro-image-max-height (display-images-p)))
-              (src (dom-attr img 'src))
-              (lang (or wiktionary-bro-current-language wiktionary-bro-language "en")))
+              (src (dom-attr img 'src)))
     (url-queue-retrieve
-     (url-expand-file-name src (format "https://%s.wiktionary.org/" lang))
+     (wiktionary-bro--expand-url src)
      #'wiktionary-bro--image-fetched
      (list (make-overlay beg end) (shr-string-number (dom-attr img 'height)))
      t t)))
@@ -451,24 +457,18 @@ The text stays visible until the image arrives, and when it does not."
        ;; transform urls to org-mode format
        ((symbol-function 'shr-tag-a)
         (lambda (dom)
-          (let-alist (cadr dom)
-            (when-let* ((href .href))
-              (let ((start (point))
-                    (desc (cond
-                           ;; Direct string content
-                           ((stringp (caddr dom))
-                            (string-trim (caddr dom)))
-                           ;; Nested element with string content
-                           ((and (consp (caddr dom))
-                                 (stringp (caddr (caddr dom))))
-                            (string-trim (caddr (caddr dom))))
-                           ;; No description, use all text content or href as fallback
-                           (t (let ((text (wiktionary-bro--dom-texts dom)))
-                                (if (string-empty-p text) href (string-trim text)))))))
-                (when (and desc (not (string-empty-p desc)))
-                  (insert (format "[[%s][%s]]" href desc))
-                  (when-let* ((img (car (dom-by-tag dom 'img))))
-                    (wiktionary-bro--display-image img start (point)))))))))
+          (if-let* ((href (dom-attr dom 'href)))
+              (let* ((start (point))
+                     (text (string-trim
+                            (replace-regexp-in-string
+                             "[ \t\n\r]+" " " (wiktionary-bro--dom-texts dom))))
+                     ;; an image shows over the text, so it needs some
+                     (desc (if (string-empty-p text) href text)))
+                (insert (format "[[%s][%s]]" href desc))
+                (when-let* ((img (car (dom-by-tag dom 'img))))
+                  (wiktionary-bro--display-image img start (point))))
+            ;; links to the page itself have no href
+            (shr-generic dom))))
 
        (shr-tag-div* (symbol-function 'shr-tag-div))
        ((symbol-function 'shr-tag-div)
@@ -531,16 +531,11 @@ The text stays visible until the image arrives, and when it does not."
        (shr-tag-a* (symbol-function 'shr-tag-a))
        ((symbol-function 'shr-tag-a)
         (lambda (dom)
-          ;; fix internal links
-          ;; otherwise they won't be navigable
-          (let* ((href (alist-get 'href (cadr dom)))
-                 (lang (or wiktionary-bro-current-language wiktionary-bro-language "en")))
-            (when href
-              (unless (string-match-p "https://" href)
-                (setf
-                 (alist-get 'href (cadr dom))
-                 (concat "https://" lang ".wiktionary.org" href))))
-            (funcall shr-tag-a* dom))))
+          ;; relative links are not navigable from the buffer, #ID links lead within it
+          (when-let* ((href (alist-get 'href (cadr dom)))
+                      ((not (string-prefix-p "#" href))))
+            (setf (alist-get 'href (cadr dom)) (wiktionary-bro--expand-url href)))
+          (funcall shr-tag-a* dom)))
 
        ((symbol-function 'shr-tag-h1)
         (lambda (dom)
@@ -593,6 +588,16 @@ The text stays visible until the image arrives, and when it does not."
   "Check if URL is a Wikipedia URL."
   (and url (string-match-p "wikipedia\\.org" url)))
 
+(defun wiktionary-bro--goto-target (id)
+  "Move point to the element with ID on the current page."
+  (if-let* ((match (save-excursion
+                     (goto-char (point-min))
+                     (text-property-search-forward 'shr-target-id id #'member))))
+      (progn
+        (push-mark)
+        (goto-char (prop-match-beginning match)))
+    (message "Link target \"%s\" is not on this page" id)))
+
 (defun wiktionary-bro--handle-link ()
   "Handle link at point in `wiktionary-bro' buffers.
 Returns t if handled, nil otherwise."
@@ -602,10 +607,13 @@ Returns t if handled, nil otherwise."
       (when (eq type 'link)
         (let ((url (org-element-property :raw-link ctx)))
           (cond
+           ((string-prefix-p "#" url)
+            (wiktionary-bro--goto-target (substring url 1))
+            t)
            ;; Handle wiktionary links
            ((wiktionary-bro--wiktionary-url-p url)
             (when-let* ((word (wiktionary-bro--extract-word-from-url url)))
-              (wiktionary-bro-lookup word wiktionary-bro-current-language)
+              (wiktionary-bro-lookup word wiktionary-bro-current-language nil url)
               t))
            ;; Handle wikipedia and other external links
            ((or (wiktionary-bro--wikipedia-url-p url)
@@ -662,7 +670,9 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
     (with-current-buffer buffer
       (insert url)
       (insert "\n\n")
-      (wiktionary-bro--shr-insert-doc parsed)
+      ;; bound, not set: the mode below kills local variables
+      (let ((wiktionary-bro-current-language lang))
+        (wiktionary-bro--shr-insert-doc parsed))
       (wiktionary-bro-mode)
       (setq-local wiktionary-bro-current-word word)
       (setq-local wiktionary-bro-current-language lang)
@@ -673,25 +683,31 @@ LANG is the language code, and AVAILABLE-LANGS is an alist of (code . name)."
           (pop-to-buffer-same-window buffer)
         (pop-to-buffer buffer)))))
 
-(defun wiktionary-bro-lookup (word &optional lang missed-word)
+(defun wiktionary-bro-lookup (word &optional lang missed-word url)
   "Look up WORD in Wiktionary using language LANG.
-LANG defaults to `wiktionary-bro-language'.  When WORD has no page, show
-the closest title instead.  MISSED-WORD is the word that had no page; it
-goes to the echo area and prevents a second fallback."
+LANG defaults to `wiktionary-bro-language'.  When WORD has no page, open
+URL on the web, or show the closest title when URL is nil.  MISSED-WORD
+is the word that had no page; it goes to the echo area, with no fallback."
   (let* ((lang (or lang wiktionary-bro-current-language wiktionary-bro-language "en"))
          (encoded-word (if (string-match-p "%" word)
                            word  ; Already encoded
                          (url-hexify-string word)))
-         (url (format
-               "https://%s.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
-               lang encoded-word)))
-    (request url
+         (api-url (format
+                   "https://%s.wiktionary.org/w/api.php?action=parse&format=json&page=%s"
+                   lang encoded-word))
+         ;; buffer-local in `wiktionary-bro-mode', and the response comes in another buffer
+         (browser browse-url-browser-function))
+    (request api-url
       :parser #'json-read
       :success
       (cl-function
        (lambda (&key data &allow-other-keys)
          (let-alist data
            (cond
+            ;; the API has no File: pages, which live on Commons, nor Special: pages
+            ((and url (member .error.code '("missingtitle" "pagecannotexist")))
+             (let ((browse-url-browser-function browser))
+               (browse-url url)))
             ((equal .error.code "missingtitle")
              (if missed-word
                  (message "No Wiktionary entry for \"%s\"" missed-word)
@@ -743,7 +759,7 @@ inflection endings: \"Aduanas\" finds \"aduanas\", \"aduanss\" finds \"aduana\".
 (defun wiktionary-bro (&optional beginning end)
   "Look up a Wiktionary entry.
 BEGINNING and END correspond to the selected text with a word
-to look up. If there is no selection provided, additional input
+to look up.  If there is no selection provided, additional input
 will be required."
   (interactive
    ;; it is a simple interactive function instead of interactive "r"

@@ -4,7 +4,7 @@
 ;; Author: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Maintainer: Ag Ibragimov <agzam.ibragimov@gmail.com>
 ;; Created: December 24, 2022
-;; Modified: November 25, 2026
+;; Modified: November 26, 2026
 ;; Version: 1.3.0
 ;; Homepage: https://github.com/agzam/wiktionary-bro.el
 ;;
@@ -36,9 +36,11 @@
   "<table><tbody><tr><td><ul><li>X</li></ul></td></tr></tbody></table>")
 
 (defun wiktionary-bro-test--parse (html)
+  "Return the dom of HTML."
   (with-temp-buffer (insert html) (libxml-parse-html-region (point-min) (point-max))))
 
 (defun wiktionary-bro-test--table (html)
+  "Return the dom of the first table in HTML."
   (car (dom-by-tag (wiktionary-bro-test--parse html) 'table)))
 
 (describe "wiktionary-bro--superscript-number"
@@ -144,7 +146,18 @@
       ;; Should return t (handled) but we can't test the actual navigation without mocking
       (let ((ctx (org-element-context)))
         (expect (org-element-type ctx) :to-equal 'link)
-        (expect (org-element-property :raw-link ctx) :to-match "wiktionary")))))
+        (expect (org-element-property :raw-link ctx) :to-match "wiktionary"))))
+
+  (it "passes the link to the lookup"
+    (spy-on 'wiktionary-bro-lookup)
+    (with-temp-buffer
+      (wiktionary-bro-mode)
+      (setq-local wiktionary-bro-current-language "de")
+      (insert "[[https://de.wiktionary.org/wiki/Datei:De-Haus.ogg][Datei]]")
+      (goto-char 3)
+      (expect (wiktionary-bro--handle-link) :to-be t)
+      (expect 'wiktionary-bro-lookup :to-have-been-called-with
+              "Datei:De-Haus.ogg" "de" nil "https://de.wiktionary.org/wiki/Datei:De-Haus.ogg"))))
 
 (describe "wiktionary-bro-mode buffer-local variables"
   (it "sets buffer-local language"
@@ -320,108 +333,6 @@
       (expect (string-prefix-p "*wiktionary:" buffer1) :to-be-truthy)
       (expect (string-prefix-p "*wiktionary:" buffer2) :to-be-truthy))))
 
-(describe "wiktionary-bro link handling with various DOM structures"
-  (it "handles links with nil content"
-    (with-temp-buffer
-      (let ((dom '(a ((href . "http://example.com")))))
-        (let-alist (cadr dom)
-          (expect .href :to-equal "http://example.com")
-          (expect (caddr dom) :to-be nil)
-          ;; Should extract href as fallback
-          (let ((desc (cond
-                       ((stringp (caddr dom))
-                        (string-trim (caddr dom)))
-                       ((and (consp (caddr dom))
-                             (stringp (caddr (caddr dom))))
-                        (string-trim (caddr (caddr dom))))
-                       (t (let ((text (wiktionary-bro--dom-texts dom)))
-                            (if (string-empty-p text) .href (string-trim text)))))))
-            (expect desc :to-equal "http://example.com"))))))
-  
-  (it "handles links with empty string content"
-    (with-temp-buffer
-      (let ((dom '(a ((href . "http://example.com")) "")))
-        (let-alist (cadr dom)
-          (expect (caddr dom) :to-equal "")
-          ;; Should skip empty content
-          (let ((desc (cond
-                       ((stringp (caddr dom))
-                        (string-trim (caddr dom)))
-                       ((and (consp (caddr dom))
-                             (stringp (caddr (caddr dom))))
-                        (string-trim (caddr (caddr dom))))
-                       (t (let ((text (wiktionary-bro--dom-texts dom)))
-                            (if (string-empty-p text) .href (string-trim text)))))))
-            ;; Empty string after trim, should use href
-            (expect (string-empty-p desc) :to-be-truthy))))))
-  
-  (it "handles links with direct string content"
-    (with-temp-buffer
-      (let ((dom '(a ((href . "http://example.com")) "Link Text")))
-        (let-alist (cadr dom)
-          (let ((desc (cond
-                       ((stringp (caddr dom))
-                        (string-trim (caddr dom)))
-                       ((and (consp (caddr dom))
-                             (stringp (caddr (caddr dom))))
-                        (string-trim (caddr (caddr dom))))
-                       (t (let ((text (wiktionary-bro--dom-texts dom)))
-                            (if (string-empty-p text) .href (string-trim text)))))))
-            (expect desc :to-equal "Link Text"))))))
-  
-  (it "handles links with nested element content"
-    (with-temp-buffer
-      (let ((dom '(a ((href . "http://example.com")) (span nil "Nested"))))
-        (let-alist (cadr dom)
-          (let ((desc (cond
-                       ((stringp (caddr dom))
-                        (string-trim (caddr dom)))
-                       ((and (consp (caddr dom))
-                             (stringp (caddr (caddr dom))))
-                        (string-trim (caddr (caddr dom))))
-                       (t (let ((text (wiktionary-bro--dom-texts dom)))
-                            (if (string-empty-p text) .href (string-trim text)))))))
-            (expect desc :to-equal "Nested"))))))
-  
-  (it "handles links with simple nested element (single text child)"
-    (with-temp-buffer
-      (let ((dom '(a ((href . "http://example.com")) (span nil "Simple"))))
-        (let-alist (cadr dom)
-          (let ((desc (cond
-                       ((stringp (caddr dom))
-                        (string-trim (caddr dom)))
-                       ((and (consp (caddr dom))
-                             (stringp (caddr (caddr dom))))
-                        (string-trim (caddr (caddr dom))))
-                       (t (let ((text (wiktionary-bro--dom-texts dom)))
-                            (if (string-empty-p text) .href (string-trim text)))))))
-            (expect desc :to-equal "Simple"))))))
-  
-  (it "falls back to dom-texts for truly complex nested content"
-    (with-temp-buffer
-      (let ((dom '(a ((href . "http://example.com")) (span nil (b nil "Bold")))))
-        (let-alist (cadr dom)
-          (let ((desc (cond
-                       ((stringp (caddr dom))
-                        (string-trim (caddr dom)))
-                       ((and (consp (caddr dom))
-                             (stringp (caddr (caddr dom))))
-                        (string-trim (caddr (caddr dom))))
-                       (t (let ((text (wiktionary-bro--dom-texts dom)))
-                            (if (string-empty-p text) .href (string-trim text)))))))
-            ;; (caddr dom) is (span ...), (caddr (caddr dom)) is (b nil "Bold") which is NOT a string
-            ;; so it falls through to wiktionary-bro--dom-texts
-            (expect desc :to-equal "Bold")))))))
-
-(describe "wiktionary-bro shr-tag-a override with nil href"
-  (it "handles links without href attribute gracefully"
-    (with-temp-buffer
-      (let ((dom '(a nil "text")))
-        (let ((href (alist-get 'href (cadr dom))))
-          (expect href :to-be nil)
-          ;; Should not error when href is nil
-          (expect (when href (string-match-p "https://" href)) :to-be nil))))))
-
 (defun wiktionary-bro-test--fake-api (pages matches)
   "Return a fake `request' for a Wiktionary that has only PAGES.
 The fuzzy title search answers MATCHES to any query."
@@ -508,7 +419,46 @@ The fuzzy title search answers MATCHES to any query."
     (wiktionary-bro-lookup "[" "en")
     (expect (spy-calls-count 'request) :to-equal 1)
     (expect (wiktionary-bro-test--messages)
-            :to-equal '("Wiktionary: Bad title \"100%\"."))))
+            :to-equal '("Wiktionary: Bad title \"100%\".")))
+
+  (it "opens a link without a page on the web instead of searching"
+    (spy-on 'request :and-call-fake (wiktionary-bro-test--fake-api nil '("File:Fclamp.jpg")))
+    (spy-on 'browse-url)
+    (wiktionary-bro-lookup "File:Fclamp.jpg" "en" nil "https://en.wiktionary.org/wiki/File:Fclamp.jpg")
+    (expect (spy-calls-count 'request) :to-equal 1)
+    (expect 'browse-url :to-have-been-called-with "https://en.wiktionary.org/wiki/File:Fclamp.jpg")
+    (expect 'message :not :to-have-been-called))
+
+  (it "opens a link to a special page on the web"
+    (spy-on 'request :and-call-fake
+            (lambda (_url &rest settings)
+              (funcall (plist-get settings :success)
+                       :data '((error (code . "pagecannotexist")
+                                      (info . "Namespace doesn't allow actual pages."))))))
+    (spy-on 'browse-url)
+    (wiktionary-bro-lookup "Spezial:ISBN-Suche/3515067760" "de" nil
+                           "https://de.wiktionary.org/wiki/Spezial:ISBN-Suche/3515067760")
+    (expect 'browse-url :to-have-been-called-with
+            "https://de.wiktionary.org/wiki/Spezial:ISBN-Suche/3515067760")
+    (expect 'message :not :to-have-been-called))
+
+  (it "opens the link with the browser of the buffer the link is in"
+    (let (respond opened)
+      (spy-on 'request :and-call-fake
+              (lambda (_url &rest settings) (setq respond (plist-get settings :success))))
+      (let ((browse-url-browser-function (lambda (url &rest _) (push (list 'other url) opened))))
+        (let ((browse-url-browser-function (lambda (url &rest _) (push url opened))))
+          (wiktionary-bro-lookup "File:Fclamp.jpg" "en" nil
+                                 "https://en.wiktionary.org/wiki/File:Fclamp.jpg"))
+        (funcall respond :data '((error (code . "missingtitle")))))
+      (expect opened :to-equal '("https://en.wiktionary.org/wiki/File:Fclamp.jpg"))))
+
+  (it "shows a linked page that exists"
+    (spy-on 'request :and-call-fake (wiktionary-bro-test--fake-api '("Thesaurus:cat") nil))
+    (spy-on 'browse-url)
+    (wiktionary-bro-lookup "Thesaurus:cat" "en" nil "https://en.wiktionary.org/wiki/Thesaurus:cat")
+    (expect (nth 3 (spy-calls-args-for 'wiktionary-bro--render 0)) :to-equal "Thesaurus:cat")
+    (expect 'browse-url :not :to-have-been-called)))
 
 (defun wiktionary-bro-test--figure (file caption)
   "Return a Wiktionary thumbnail figure of FILE with CAPTION."
@@ -524,6 +474,98 @@ The fuzzy title search answers MATCHES to any query."
   "Render HTML into the current buffer and return the text."
   (wiktionary-bro--shr-insert-doc (wiktionary-bro-test--parse html))
   (buffer-substring-no-properties (point-min) (point-max)))
+
+(describe "wiktionary-bro links"
+  (it "resolves page links on the wiki of the page"
+    (with-temp-buffer
+      (setq-local wiktionary-bro-current-language "de")
+      (expect (wiktionary-bro-test--render "<p><a href=\"/wiki/Haus\">Haus</a></p>")
+              :to-equal "[[https://de.wiktionary.org/wiki/Haus][Haus]]\n")))
+
+  (it "gives protocol-relative links the https scheme"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render
+               "<p><a href=\"//upload.wikimedia.org/wikipedia/commons/7/7e/De-Haus.ogg\">ogg</a></p>")
+              :to-equal "[[https://upload.wikimedia.org/wikipedia/commons/7/7e/De-Haus.ogg][ogg]]\n")))
+
+  (it "keeps absolute links"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render
+               "<p><a href=\"http://example.com/a?b=c\">x</a> <a href=\"https://en.wikipedia.org/wiki/Clamp\">y</a></p>")
+              :to-equal "[[http://example.com/a?b=c][x]] [[https://en.wikipedia.org/wiki/Clamp][y]]\n")))
+
+  (it "keeps in-page links in the buffer"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render "<p>cat <a href=\"#cite_note-1\">[1]</a></p>")
+              :to-equal "cat [[#cite_note-1][[1]]]\n")))
+
+  (it "shows the text of every child of a link"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render
+               "<p>cat<a href=\"#cite_note-1\"><span class=\"cite-bracket\">[</span>1<span class=\"cite-bracket\">]</span></a></p>")
+              :to-equal "cat[[#cite_note-1][[1]]]\n")))
+
+  (it "shows nested link text on one line"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render
+               "<p><a href=\"/wiki/x\"><span><b>Old</b>\n  Spanish</span></a></p>")
+              :to-equal "[[https://en.wiktionary.org/wiki/x][Old Spanish]]\n")))
+
+  (it "shows the address of a link without text"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render "<p><a href=\"//upload.wikimedia.org/a.mp3\"></a></p>")
+              :to-equal "[[https://upload.wikimedia.org/a.mp3][https://upload.wikimedia.org/a.mp3]]\n")))
+
+  (it "keeps the text of a link to the page itself"
+    (with-temp-buffer
+      (expect (wiktionary-bro-test--render "<p>see <a class=\"mw-selflink selflink\">cat</a></p>")
+              :to-equal "see cat\n"))))
+
+(describe "wiktionary-bro in-page links"
+  (it "move point to their target"
+    (with-temp-buffer
+      (wiktionary-bro-test--render
+       "<p>cat <a href=\"#cite_note-1\">[1]</a></p><ol class=\"references\"><li id=\"cite_note-1\">a note</li></ol>")
+      (wiktionary-bro-mode)
+      (goto-char (point-min))
+      (search-forward "[[#")
+      (let ((link (point)))
+        (expect (wiktionary-bro--handle-link) :to-be t)
+        (expect (buffer-substring-no-properties (point) (line-end-position)) :to-match "a note\\'")
+        (expect (mark t) :to-equal link))))
+
+  (it "stay put when the page has no such target"
+    (spy-on 'message)
+    (with-temp-buffer
+      (wiktionary-bro-test--render "<p>cat <a href=\"#Middle_Scots\">Middle Scots</a></p>")
+      (wiktionary-bro-mode)
+      (goto-char (point-min))
+      (search-forward "[[#")
+      (let ((link (point)))
+        (expect (wiktionary-bro--handle-link) :to-be t)
+        (expect (point) :to-equal link)
+        (expect 'message :to-have-been-called-with
+                "Link target \"%s\" is not on this page" "Middle_Scots")))))
+
+(describe "wiktionary-bro--render"
+  (it "resolves links and images on the wiki of the page language"
+    (spy-on 'pop-to-buffer)
+    (spy-on 'display-images-p :and-return-value t)
+    (spy-on 'url-queue-retrieve)
+    (let ((wiktionary-bro-language "en"))
+      (wiktionary-bro--render
+       "https://fr.wiktionary.org/wiki/chat" "chat"
+       "<p><a href=\"/wiki/chien\">chien</a> <a href=\"/wiki/Fichier:Chat.png\"><img src=\"/w/images/Chat.png\" height=\"20\"/></a></p>"
+       "chat" "fr" nil))
+    (let ((buffer (car (spy-calls-args-for 'pop-to-buffer 0))))
+      (unwind-protect
+          (with-current-buffer buffer
+            (expect (buffer-string) :to-match
+                    (regexp-quote "[[https://fr.wiktionary.org/wiki/chien][chien]]"))
+            (expect (car (spy-calls-args-for 'url-queue-retrieve 0))
+                    :to-equal "https://fr.wiktionary.org/w/images/Chat.png")
+            (expect wiktionary-bro-current-language :to-equal "fr"))
+        (kill-buffer buffer)))))
 
 (describe "wiktionary-bro figures"
   (it "puts a space between the image link and its caption"
