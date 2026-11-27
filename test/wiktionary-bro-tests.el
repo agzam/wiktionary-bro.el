@@ -533,11 +533,12 @@ The fuzzy title search answers MATCHES to any query."
 
   (it "puts each figure and the text around it on its own line"
     (with-temp-buffer
+      ;; libxml2 does not always wrap leading body text in a p of its own
       (expect (wiktionary-bro-test--render
-               (concat "before"
+               (concat "<p>before"
                        (wiktionary-bro-test--figure "A.jpg" "a bicycle")
                        (wiktionary-bro-test--figure "B.jpg" "a bicycle in use")
-                       "after"))
+                       "after</p>"))
               :to-equal (concat "before\n"
                                 (wiktionary-bro-test--file-link "A.jpg") " a bicycle\n"
                                 (wiktionary-bro-test--file-link "B.jpg") " a bicycle in use\n"
